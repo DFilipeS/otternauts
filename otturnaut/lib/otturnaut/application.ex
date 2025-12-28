@@ -8,12 +8,9 @@ defmodule Otturnaut.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      # Starts a worker by calling: Otturnaut.Worker.start_link(arg)
-      # {Otturnaut.Worker, arg}
+      {Task.Supervisor, name: Otturnaut.Command.Supervisor}
     ]
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Otturnaut.Supervisor]
     Supervisor.start_link(children, opts)
   end
