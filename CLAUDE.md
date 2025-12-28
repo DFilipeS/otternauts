@@ -2,6 +2,54 @@
 
 A lightweight, open-source platform for deploying and managing web applications across servers. Built with Elixir.
 
+## Ways of Working
+
+**Do not jump straight to implementation.** Before writing any code:
+
+1. **Discuss the approach first** — When asked to build a feature or solve a problem, start by discussing the design, tradeoffs, and options. Ask clarifying questions if needed.
+
+2. **Propose a plan** — Outline what you intend to build, which modules/files will be involved, and how they'll interact. Wait for approval before coding.
+
+3. **Small steps** — Implement in small increments. After each step, pause to verify the approach is correct before continuing.
+
+4. **Ask, don't assume** — If something is unclear or there are multiple valid approaches, ask rather than picking one silently.
+
+5. **Reference the PRD** — For context on features and architecture, read `docs/PRD.md`. Ensure implementation aligns with the documented vision.
+
+### When I say...
+
+| I say... | You should... |
+|----------|---------------|
+| "Let's discuss X" | Talk through options, don't write code yet |
+| "What do you think about X?" | Share opinions and tradeoffs, ask questions |
+| "Implement X" or "Build X" | Propose a plan first, then implement after approval |
+| "Just do it" or "Go ahead" | Proceed with implementation |
+
+### Testing Philosophy
+
+Follow the testing pyramid strictly:
+
+```
+        /\
+       /  \      E2E (few)
+      /----\
+     /      \    Integration (some)
+    /--------\
+   /          \  Unit (most)
+  /____________\
+```
+
+- **Unit tests (most)** — Test individual functions and modules in isolation. Fast, focused, easy to debug. This should be the majority of tests.
+- **Integration tests (some)** — Test module interactions, database operations, context functions. Fewer than unit tests.
+- **End-to-end tests (few)** — Test full user flows through LiveView or the complete system. These are slow and brittle—use sparingly.
+
+**Decision rule:** Before writing a test, ask "Can I test this at a lower level?" If yes, do that instead.
+
+**When implementing features:**
+1. Write unit tests for the core logic first
+2. Add integration tests only where module boundaries matter
+3. Add E2E tests only for critical user journeys
+
 ## Documentation
 
 - **[docs/PRD.md](docs/PRD.md)** — Product Requirements Document with full context on goals, architecture, and roadmap
