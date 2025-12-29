@@ -1,0 +1,137 @@
+# ADR 003: Setup and Provisioning
+
+**Status:** Accepted
+**Date:** 2025-12-28
+
+## Context
+
+When a user registers a server (outpost) with Mission Control, the Otturnaut agent and its dependencies need to be installed on that server. Key dependencies include:
+
+- **Caddy** — Reverse proxy for routing traffic and automatic HTTPS
+- **Docker or Podman** — Container runtime for running applications (user-provided)
+
+The agent also needs specific system configuration:
+
+- Caddy must be able to bind to ports 80/443 (normally requires root)
+- The agent should run with minimal privileges
+- The agent needs to know how to connect back to Mission Control
+
+## Decision
+
+### Separation of concerns
+
+We separate **provisioning** (one-time setup) from **runtime** (ongoing operations):
+
+| Component | Responsibility | Privileges |
+|-----------|---------------|------------|
+| **Setup script** | Install agent, install Caddy, configure system | Elevated (sudo) |
+| **Agent** | Deployments, proxy config, health checks, reporting | Minimal (unprivileged user) |
+
+### Setup script approach
+
+A setup script handles all provisioning tasks. This script:
+
+1. Downloads the Otturnaut release (agent + bundled Caddy binary)
+2. Extracts and installs binaries to appropriate locations
+3. Grants Caddy the capability to bind low ports (`setcap`)
+4. Creates a systemd service for the agent
+5. Creates an unprivileged user to run the agent
+6. Configures the agent with Mission Control connection details
+7. Starts the agent service
+
+### Bundled dependencies
+
+The Otturnaut release bundles the Caddy binary for the target architecture. This ensures:
+
+- Version compatibility between agent and Caddy
+- No network fetch required at runtime
+- Works in air-gapped environments
+
+The release build process downloads the appropriate Caddy binary from official GitHub releases.
+
+### Target architectures
+
+- `linux-amd64` (x86_64) — Most VPS providers
+- `linux-arm64` (aarch64) — ARM servers, Raspberry Pi
+
+### Caddy privileges
+
+Caddy needs to bind to ports 80 and 443. Instead of running as root, we use Linux capabilities:
+
+```bash
+setcap cap_net_bind_service=+ep /usr/local/bin/caddy
+```
+
+This grants only the specific capability needed, following least-privilege principles.
+
+### Container runtime
+
+Docker or Podman installation is **not** handled by the setup script initially. These are complex, distro-specific installations that users typically manage themselves.
+
+The agent checks for container runtime availability and reports status to Mission Control. If missing, Mission Control displays guidance for the user.
+
+Future enhancement: Optional installation of Docker/Podman via the setup script.
+
+## Provisioning flow
+
+```
+Mission Control                          Outpost (Server)
+      │                                       │
+      │──── SSH + run setup script ──────────▶│
+      │      (with connection config)         │
+      │                                       │ ┌─────────────────────────┐
+      │                                       │ │ Setup script:           │
+      │                                       │ │ 1. Download release     │
+      │                                       │ │ 2. Extract agent+Caddy  │
+      │                                       │ │ 3. setcap on Caddy      │
+      │                                       │ │ 4. Create systemd unit  │
+      │                                       │ │ 5. Create otturnaut user│
+      │                                       │ │ 6. Write config         │
+      │                                       │ │ 7. Start agent service  │
+      │                                       │ └─────────────────────────┘
+      │                                       │
+      │◀──── Agent connects (Erlang dist) ────│
+      │                                       │
+```
+
+## Consequences
+
+### Benefits
+
+- **Least privilege** — Agent runs as unprivileged user after setup
+- **Auditable** — Users can inspect the setup script before execution
+- **Idempotent** — Script can be re-run safely for upgrades or repairs
+- **Simple agent** — No installation logic or sudo requirements at runtime
+- **Extensible** — Setup script can grow to handle optional dependencies
+
+### Drawbacks
+
+- **Requires sudo** — Initial setup needs elevated privileges
+- **systemd assumption** — Assumes systemd is available (covers most Linux servers)
+- **Two components to maintain** — Setup script and agent must stay in sync
+
+### Implications
+
+- Release process must build architecture-specific bundles with Caddy
+- Setup script must be versioned alongside the agent
+- Need a mechanism to pass Mission Control connection details to the script
+- Agent upgrade process will re-run the setup script
+
+## Open questions
+
+These will be resolved as we implement:
+
+1. **Script distribution** — Where does the setup script live? Options:
+   - Bundled in the release tarball
+   - Hosted at a stable URL (e.g., `https://get.otternauts.dev`)
+   - Generated by Mission Control with embedded configuration
+
+2. **Configuration mechanism** — How does the agent receive Mission Control connection details? Options:
+   - Environment variables in the systemd unit
+   - Configuration file written during setup
+   - Command-line arguments
+
+3. **Upgrade process** — How are agent upgrades triggered and applied?
+   - Mission Control sends upgrade command
+   - Agent downloads new release and re-runs setup script
+   - Or: Agent signals Mission Control to re-provision via SSH
