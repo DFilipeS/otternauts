@@ -16,14 +16,14 @@ A lightweight, open-source platform for deploying and managing web applications 
 
 5. **Reference the PRD** — For context on features and architecture, read `docs/PRD.md`. Ensure implementation aligns with the documented vision.
 
-### When I say...
+### When I say
 
-| I say... | You should... |
-|----------|---------------|
-| "Let's discuss X" | Talk through options, don't write code yet |
-| "What do you think about X?" | Share opinions and tradeoffs, ask questions |
-| "Implement X" or "Build X" | Propose a plan first, then implement after approval |
-| "Just do it" or "Go ahead" | Proceed with implementation |
+| I say...                     | You should...                                       |
+| ---------------------------- | --------------------------------------------------- |
+| "Let's discuss X"            | Talk through options, don't write code yet          |
+| "What do you think about X?" | Share opinions and tradeoffs, ask questions         |
+| "Implement X" or "Build X"   | Propose a plan first, then implement after approval |
+| "Just do it" or "Go ahead"   | Proceed with implementation                         |
 
 ### Testing Philosophy
 
@@ -45,10 +45,20 @@ Follow the testing pyramid strictly:
 
 **Decision rule:** Before writing a test, ask "Can I test this at a lower level?" If yes, do that instead.
 
+**Coverage target:** 100% code coverage. Run `mix test --cover` to check.
+
 **When implementing features:**
+
 1. Write unit tests for the core logic first
 2. Add integration tests only where module boundaries matter
 3. Add E2E tests only for critical user journeys
+
+**Mock modules in tests:**
+
+- Define mock modules at the **test module level**, not inside `describe` blocks or individual tests
+- Modules defined inside tests get redefined on each run, causing warnings with `--warnings-as-errors`
+- Use dependency injection (passing modules as options) for testability
+- For external dependencies that can't be injected (like Erlang's `Port`), create thin wrapper modules and use `mimic` to mock them
 
 ## Documentation
 
@@ -84,14 +94,14 @@ otternauts/
 
 ### Framework Usage
 
-| Component | Frameworks | Notes |
-|-----------|------------|-------|
-| Mission Control | Phoenix, Ash, AshPhoenix | Data layer, business logic, UI |
-| Otturnaut | Plain OTP | GenServers, Supervisors, Tasks—no data layer needed |
+| Component       | Frameworks               | Notes                                               |
+| --------------- | ------------------------ | --------------------------------------------------- |
+| Mission Control | Phoenix, Ash, AshPhoenix | Data layer, business logic, UI                      |
+| Otturnaut       | Plain OTP                | GenServers, Supervisors, Tasks—no data layer needed |
 
 ## Development Guidelines
 
-- Follow the Elixir expert skill in `/mnt/skills/user/elixir-expert/SKILL.md`
+- Follow the Elixir expert skill in `.claude/skills/elixir-expert/SKILL.md`
 - Poncho projects over umbrellas
 - Explicit configuration over magic/auto-detection
 - Testing pyramid: unit tests > integration tests > e2e tests

@@ -4,6 +4,16 @@ defmodule Otturnaut.Caddy.Client do
 
   This module handles the low-level HTTP communication with Caddy.
   It's typically not called directly — use `Otturnaut.Caddy` instead.
+
+  ## Testing
+
+  Pass `plug: {Req.Test, stub_name}` in opts to use Req.Test stubs:
+
+      Req.Test.stub(MyStub, fn conn ->
+        Req.Test.json(conn, %{"apps" => %{}})
+      end)
+
+      Client.get_config("/apps", plug: {Req.Test, MyStub})
   """
 
   @default_base_url "http://localhost:2019"
@@ -22,22 +32,9 @@ defmodule Otturnaut.Caddy.Client do
   def get_config(path, opts \\ []) do
     url = build_url("/config#{path}", opts)
 
-    case Req.get(url, receive_timeout: 5_000) do
-      {:ok, %Req.Response{status: 200, body: body}} ->
-        {:ok, body}
-
-      {:ok, %Req.Response{status: status, body: body}} ->
-        {:error, {:unexpected_status, status, body}}
-
-      {:error, %Req.TransportError{reason: :econnrefused}} ->
-        {:error, :caddy_unavailable}
-
-      {:error, %Req.TransportError{reason: :timeout}} ->
-        {:error, :timeout}
-
-      {:error, _reason} ->
-        {:error, :request_failed}
-    end
+    url
+    |> Req.get(req_opts(opts))
+    |> handle_response(:get)
   end
 
   @doc """
@@ -49,22 +46,9 @@ defmodule Otturnaut.Caddy.Client do
   def set_config(path, config, opts \\ []) do
     url = build_url("/config#{path}", opts)
 
-    case Req.post(url, json: config, receive_timeout: 5_000) do
-      {:ok, %Req.Response{status: 200}} ->
-        :ok
-
-      {:ok, %Req.Response{status: status, body: body}} ->
-        {:error, {:unexpected_status, status, body}}
-
-      {:error, %Req.TransportError{reason: :econnrefused}} ->
-        {:error, :caddy_unavailable}
-
-      {:error, %Req.TransportError{reason: :timeout}} ->
-        {:error, :timeout}
-
-      {:error, _reason} ->
-        {:error, :request_failed}
-    end
+    url
+    |> Req.post(Keyword.put(req_opts(opts), :json, config))
+    |> handle_response(:post)
   end
 
   @doc """
@@ -76,22 +60,9 @@ defmodule Otturnaut.Caddy.Client do
   def append_config(path, config, opts \\ []) do
     url = build_url("/config#{path}/...", opts)
 
-    case Req.post(url, json: config, receive_timeout: 5_000) do
-      {:ok, %Req.Response{status: 200}} ->
-        :ok
-
-      {:ok, %Req.Response{status: status, body: body}} ->
-        {:error, {:unexpected_status, status, body}}
-
-      {:error, %Req.TransportError{reason: :econnrefused}} ->
-        {:error, :caddy_unavailable}
-
-      {:error, %Req.TransportError{reason: :timeout}} ->
-        {:error, :timeout}
-
-      {:error, _reason} ->
-        {:error, :request_failed}
-    end
+    url
+    |> Req.post(Keyword.put(req_opts(opts), :json, config))
+    |> handle_response(:post)
   end
 
   @doc """
@@ -101,22 +72,9 @@ defmodule Otturnaut.Caddy.Client do
   def delete_config(path, opts \\ []) do
     url = build_url("/config#{path}", opts)
 
-    case Req.delete(url, receive_timeout: 5_000) do
-      {:ok, %Req.Response{status: 200}} ->
-        :ok
-
-      {:ok, %Req.Response{status: status, body: body}} ->
-        {:error, {:unexpected_status, status, body}}
-
-      {:error, %Req.TransportError{reason: :econnrefused}} ->
-        {:error, :caddy_unavailable}
-
-      {:error, %Req.TransportError{reason: :timeout}} ->
-        {:error, :timeout}
-
-      {:error, _reason} ->
-        {:error, :request_failed}
-    end
+    url
+    |> Req.delete(req_opts(opts))
+    |> handle_response(:delete)
   end
 
   @doc """
@@ -128,22 +86,9 @@ defmodule Otturnaut.Caddy.Client do
   def get_by_id(id, opts \\ []) do
     url = build_id_url(id, opts)
 
-    case Req.get(url, receive_timeout: 5_000) do
-      {:ok, %Req.Response{status: 200, body: body}} ->
-        {:ok, body}
-
-      {:ok, %Req.Response{status: status, body: body}} ->
-        {:error, {:unexpected_status, status, body}}
-
-      {:error, %Req.TransportError{reason: :econnrefused}} ->
-        {:error, :caddy_unavailable}
-
-      {:error, %Req.TransportError{reason: :timeout}} ->
-        {:error, :timeout}
-
-      {:error, _reason} ->
-        {:error, :request_failed}
-    end
+    url
+    |> Req.get(req_opts(opts))
+    |> handle_response(:get)
   end
 
   @doc """
@@ -155,22 +100,9 @@ defmodule Otturnaut.Caddy.Client do
   def delete_by_id(id, opts \\ []) do
     url = build_id_url(id, opts)
 
-    case Req.delete(url, receive_timeout: 5_000) do
-      {:ok, %Req.Response{status: 200}} ->
-        :ok
-
-      {:ok, %Req.Response{status: status, body: body}} ->
-        {:error, {:unexpected_status, status, body}}
-
-      {:error, %Req.TransportError{reason: :econnrefused}} ->
-        {:error, :caddy_unavailable}
-
-      {:error, %Req.TransportError{reason: :timeout}} ->
-        {:error, :timeout}
-
-      {:error, _reason} ->
-        {:error, :request_failed}
-    end
+    url
+    |> Req.delete(req_opts(opts))
+    |> handle_response(:delete)
   end
 
   @doc """
@@ -182,6 +114,40 @@ defmodule Otturnaut.Caddy.Client do
       {:ok, _} -> :ok
       error -> error
     end
+  end
+
+  # Build common Req options, forwarding :plug if provided for testing
+  defp req_opts(opts) do
+    base = [receive_timeout: 5_000, retry: false]
+
+    case Keyword.get(opts, :plug) do
+      nil -> base
+      plug -> Keyword.put(base, :plug, plug)
+    end
+  end
+
+  defp handle_response({:ok, %Req.Response{status: 200, body: body}}, :get) do
+    {:ok, body}
+  end
+
+  defp handle_response({:ok, %Req.Response{status: 200}}, _method) do
+    :ok
+  end
+
+  defp handle_response({:ok, %Req.Response{status: status, body: body}}, _method) do
+    {:error, {:unexpected_status, status, body}}
+  end
+
+  defp handle_response({:error, %Req.TransportError{reason: :econnrefused}}, _method) do
+    {:error, :caddy_unavailable}
+  end
+
+  defp handle_response({:error, %Req.TransportError{reason: :timeout}}, _method) do
+    {:error, :timeout}
+  end
+
+  defp handle_response({:error, _reason}, _method) do
+    {:error, :request_failed}
   end
 
   defp build_url(path, opts) do

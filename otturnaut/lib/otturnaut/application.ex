@@ -8,7 +8,9 @@ defmodule Otturnaut.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      {Task.Supervisor, name: Otturnaut.Command.Supervisor}
+      {Task.Supervisor, name: Otturnaut.Command.Supervisor},
+      Otturnaut.PortManager,
+      Otturnaut.AppState
     ]
 
     opts = [strategy: :one_for_one, name: Otturnaut.Supervisor]

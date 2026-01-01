@@ -15,6 +15,7 @@ defmodule Otturnaut.Command.Runner do
   """
 
   alias Otturnaut.Command.Result
+  alias Otturnaut.Command.PortWrapper
 
   @default_timeout :timer.minutes(5)
   @line_buffer_size 10 * 1024
@@ -136,7 +137,7 @@ defmodule Otturnaut.Command.Runner do
 
   defp kill_port(port) do
     # Get the OS PID and attempt to kill it
-    case Port.info(port, :os_pid) do
+    case PortWrapper.info(port, :os_pid) do
       {:os_pid, os_pid} ->
         System.cmd("kill", ["-9", to_string(os_pid)], stderr_to_stdout: true)
 
@@ -148,8 +149,8 @@ defmodule Otturnaut.Command.Runner do
   end
 
   defp safe_close_port(port) do
-    if Port.info(port) != nil do
-      Port.close(port)
+    if PortWrapper.info(port) != nil do
+      PortWrapper.close(port)
     end
   rescue
     # Port may already be closed

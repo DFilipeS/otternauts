@@ -82,6 +82,22 @@ defmodule Otturnaut.Caddy.RouteTest do
 
       assert {:error, _} = Route.from_caddy_config(config)
     end
+
+    test "returns error for invalid dial format" do
+      config = %{
+        "@id" => "myapp",
+        "match" => [%{"host" => ["myapp.com"]}],
+        "handle" => [
+          %{
+            "handler" => "reverse_proxy",
+            "upstreams" => [%{"dial" => "invalid-dial-format"}]
+          }
+        ]
+      }
+
+      assert {:error, "could not parse port from dial: invalid-dial-format"} =
+               Route.from_caddy_config(config)
+    end
   end
 
   describe "roundtrip" do

@@ -1,0 +1,232 @@
+defmodule Otturnaut.AppState do
+  @moduledoc """
+  Manages runtime state for deployed applications.
+
+  State is stored in ETS for fast access and is rebuilt on startup by querying
+  the runtime (Docker, systemd, etc.). This keeps the agent stateless - no
+  persistence required.
+
+  ## State Structure
+
+  Each app has:
+  - `id` - Application identifier
+  - `deployment_id` - Current deployment ID
+  - `container_name` - Full container/service name
+  - `port` - Host port the app is listening on
+  - `domains` - List of domains routed to this app
+  - `status` - Current status (:running, :stopped, :deploying)
+
+  ## Example
+
+      # Register a new app
+      AppState.put("myapp", %{
+        deployment_id: "abc123",
+        container_name: "otturnaut-myapp-abc123",
+        port: 10042,
+        domains: ["myapp.com"],
+        status: :running
+      })
+
+      # Get app state
+      {:ok, state} = AppState.get("myapp")
+
+      # List all apps
+      apps = AppState.list()
+
+  """
+
+  use GenServer
+
+  @type app_id :: String.t()
+
+  @type app :: %{
+          deployment_id: String.t(),
+          container_name: String.t(),
+          port: pos_integer(),
+          domains: [String.t()],
+          status: :running | :stopped | :deploying
+        }
+
+  # Client API
+
+  @doc """
+  Starts the AppState GenServer.
+
+  ## Options
+  - `:name` - GenServer name (default: `Otturnaut.AppState`)
+  """
+  def start_link(opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
+    GenServer.start_link(__MODULE__, opts, name: name)
+  end
+
+  @doc """
+  Stores or updates state for an app.
+  """
+  @spec put(app_id(), app(), GenServer.server()) :: :ok
+  def put(app_id, app, server \\ __MODULE__) when is_binary(app_id) and is_map(app) do
+    GenServer.call(server, {:put, app_id, app})
+  end
+
+  @doc """
+  Gets state for an app.
+
+  Returns `{:ok, app}` or `{:error, :not_found}`.
+  """
+  @spec get(app_id(), GenServer.server()) :: {:ok, app()} | {:error, :not_found}
+  def get(app_id, server \\ __MODULE__) when is_binary(app_id) do
+    GenServer.call(server, {:get, app_id})
+  end
+
+  @doc """
+  Deletes state for an app.
+  """
+  @spec delete(app_id(), GenServer.server()) :: :ok
+  def delete(app_id, server \\ __MODULE__) when is_binary(app_id) do
+    GenServer.call(server, {:delete, app_id})
+  end
+
+  @doc """
+  Lists all apps.
+
+  Returns a list of `{app_id, app}` tuples.
+  """
+  @spec list(GenServer.server()) :: [{app_id(), app()}]
+  def list(server \\ __MODULE__) do
+    GenServer.call(server, :list)
+  end
+
+  @doc """
+  Updates a specific field for an app.
+
+  Returns `:ok` or `{:error, :not_found}`.
+  """
+  @spec update(app_id(), atom(), term(), GenServer.server()) :: :ok | {:error, :not_found}
+  def update(app_id, field, value, server \\ __MODULE__)
+      when is_binary(app_id) and is_atom(field) do
+    GenServer.call(server, {:update, app_id, field, value})
+  end
+
+  @doc """
+  Updates the status of an app.
+  """
+  @spec update_status(app_id(), :running | :stopped | :deploying, GenServer.server()) ::
+          :ok | {:error, :not_found}
+  def update_status(app_id, status, server \\ __MODULE__) do
+    update(app_id, :status, status, server)
+  end
+
+  @doc """
+  Clears all state. Useful for testing.
+  """
+  @spec clear(GenServer.server()) :: :ok
+  def clear(server \\ __MODULE__) do
+    GenServer.call(server, :clear)
+  end
+
+  @doc """
+  Recovers state from the runtime.
+
+  Queries the runtime for running containers/services and populates the state.
+  Also registers ports with the PortManager.
+  """
+  @spec recover_from_runtime(module(), GenServer.server()) :: :ok
+  def recover_from_runtime(runtime, server \\ __MODULE__) do
+    GenServer.call(server, {:recover, runtime}, :timer.seconds(30))
+  end
+
+  # Server callbacks
+
+  @impl true
+  def init(_opts) do
+    table = :ets.new(:app_state, [:set, :private])
+    {:ok, %{table: table}}
+  end
+
+  @impl true
+  def handle_call({:put, app_id, app}, _from, %{table: table} = state) do
+    :ets.insert(table, {app_id, app})
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:get, app_id}, _from, %{table: table} = state) do
+    result =
+      case :ets.lookup(table, app_id) do
+        [{^app_id, app}] -> {:ok, app}
+        [] -> {:error, :not_found}
+      end
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:delete, app_id}, _from, %{table: table} = state) do
+    :ets.delete(table, app_id)
+    {:reply, :ok, state}
+  end
+
+  def handle_call(:list, _from, %{table: table} = state) do
+    {:reply, :ets.tab2list(table), state}
+  end
+
+  def handle_call({:update, app_id, field, value}, _from, %{table: table} = state) do
+    result =
+      case :ets.lookup(table, app_id) do
+        [{^app_id, app}] ->
+          updated_app = Map.put(app, field, value)
+          :ets.insert(table, {app_id, updated_app})
+          :ok
+
+        [] ->
+          {:error, :not_found}
+      end
+
+    {:reply, result, state}
+  end
+
+  def handle_call(:clear, _from, %{table: table} = state) do
+    :ets.delete_all_objects(table)
+    {:reply, :ok, state}
+  end
+
+  # Maybe we will get rid of this all together and just rely on syncing state
+  # from Mission Control every time the agent boots up.
+  def handle_call({:recover, runtime}, _from, %{table: table} = state) do
+    case runtime.list_apps() do
+      {:ok, apps} ->
+        for app <- apps, app.status == :running do
+          # Register with AppState
+          :ets.insert(table, {
+            app.id,
+            %{
+              deployment_id: extract_deploy_id(app.container_name),
+              container_name: app.container_name,
+              port: app.port,
+              # Will be synced from Mission Control
+              domains: [],
+              status: :running
+            }
+          })
+
+          # Register port with PortManager if port exists
+          if app.port do
+            Otturnaut.PortManager.mark_in_use(app.port)
+          end
+        end
+
+        {:reply, :ok, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  # Helpers
+
+  defp extract_deploy_id(container_name) do
+    # otturnaut-myapp-abc123 -> abc123
+    case String.split(container_name, "-", parts: 3) do
+      ["otturnaut", _app_id, deploy_id] -> deploy_id
+      _ -> "unknown"
+    end
+  end
+end

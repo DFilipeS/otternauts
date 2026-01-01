@@ -34,6 +34,9 @@ defmodule Otturnaut.Caddy do
   @server_path "/apps/http/servers/otturnaut"
   @routes_path "#{@server_path}/routes"
 
+  # Allow injecting a different client module for testing
+  defp client(opts), do: Keyword.get(opts, :client, Client)
+
   # Default ports - can be overridden via opts
   @default_http_port 80
   @default_https_port 443
@@ -58,7 +61,7 @@ defmodule Otturnaut.Caddy do
   """
   @spec health_check(keyword()) :: :ok | error()
   def health_check(opts \\ []) do
-    Client.health_check(opts)
+    client(opts).health_check(opts)
   end
 
   @doc """
@@ -78,7 +81,7 @@ defmodule Otturnaut.Caddy do
     with :ok <- ensure_server_exists(opts) do
       config = Route.to_caddy_config(route)
       # POST to routes path appends a single item to the array
-      Client.set_config(@routes_path, config, opts)
+      client(opts).set_config(@routes_path, config, opts)
     end
   end
 
@@ -92,7 +95,7 @@ defmodule Otturnaut.Caddy do
   """
   @spec remove_route(String.t(), keyword()) :: :ok | error()
   def remove_route(route_id, opts \\ []) do
-    Client.delete_by_id(route_id, opts)
+    client(opts).delete_by_id(route_id, opts)
   end
 
   @doc """
@@ -111,7 +114,7 @@ defmodule Otturnaut.Caddy do
   """
   @spec list_routes(keyword()) :: {:ok, [Route.t()]} | error()
   def list_routes(opts \\ []) do
-    case Client.get_config(@routes_path, opts) do
+    case client(opts).get_config(@routes_path, opts) do
       {:ok, routes} when is_list(routes) ->
         parsed_routes =
           routes
@@ -146,7 +149,7 @@ defmodule Otturnaut.Caddy do
   """
   @spec get_route(String.t(), keyword()) :: {:ok, Route.t()} | error()
   def get_route(route_id, opts \\ []) do
-    case Client.get_by_id(route_id, opts) do
+    case client(opts).get_by_id(route_id, opts) do
       {:ok, config} when is_map(config) ->
         Route.from_caddy_config(config)
 
@@ -161,7 +164,7 @@ defmodule Otturnaut.Caddy do
   # Ensures the Otturnaut HTTP server exists in Caddy's config.
   # Creates it if it doesn't exist.
   defp ensure_server_exists(opts) do
-    case Client.get_config(@server_path, opts) do
+    case client(opts).get_config(@server_path, opts) do
       {:ok, config} when is_map(config) ->
         :ok
 
@@ -194,8 +197,10 @@ defmodule Otturnaut.Caddy do
       }
       |> maybe_disable_auto_https(disable_auto_https)
 
+    cli = client(opts)
+
     # Check the current state of the config
-    case Client.get_config("", opts) do
+    case cli.get_config("", opts) do
       {:ok, nil} ->
         # Config is completely empty, create the full structure at root
         full_config = %{
@@ -208,11 +213,11 @@ defmodule Otturnaut.Caddy do
           }
         }
 
-        Client.set_config("", full_config, opts)
+        cli.set_config("", full_config, opts)
 
       {:ok, %{"apps" => %{"http" => %{"servers" => _}}}} ->
         # HTTP servers exist, just add our server
-        Client.set_config(@server_path, server_config, opts)
+        cli.set_config(@server_path, server_config, opts)
 
       {:ok, %{"apps" => %{"http" => _}}} ->
         # HTTP app exists but no servers, create servers
@@ -220,7 +225,7 @@ defmodule Otturnaut.Caddy do
           "otturnaut" => server_config
         }
 
-        Client.set_config("/apps/http/servers", servers_config, opts)
+        cli.set_config("/apps/http/servers", servers_config, opts)
 
       {:ok, %{"apps" => _}} ->
         # Apps exists but no HTTP app
@@ -230,7 +235,7 @@ defmodule Otturnaut.Caddy do
           }
         }
 
-        Client.set_config("/apps/http", http_config, opts)
+        cli.set_config("/apps/http", http_config, opts)
 
       {:ok, %{}} ->
         # Config exists but is empty object, create apps
@@ -242,7 +247,7 @@ defmodule Otturnaut.Caddy do
           }
         }
 
-        Client.set_config("/apps", apps_config, opts)
+        cli.set_config("/apps", apps_config, opts)
 
       error ->
         error

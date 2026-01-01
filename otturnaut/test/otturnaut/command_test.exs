@@ -1,8 +1,16 @@
 defmodule Otturnaut.CommandTest do
   use ExUnit.Case, async: true
+  use Mimic
 
   alias Otturnaut.Command
   alias Otturnaut.Command.Result
+  alias Otturnaut.Command.PortWrapper
+
+  setup do
+    # Ensure the application is started (may have been stopped by other tests)
+    {:ok, _} = Application.ensure_all_started(:otturnaut)
+    :ok
+  end
 
   describe "run/3 (sync)" do
     test "executes a command and returns output" do
@@ -49,6 +57,33 @@ defmodule Otturnaut.CommandTest do
       assert result.status == :error
       assert result.error == :timeout
       assert result.duration_ms >= 100
+    end
+
+    test "handles empty output" do
+      result = Command.run("true", [])
+
+      assert result.status == :ok
+      assert result.output == ""
+    end
+
+    test "handles infinity timeout" do
+      result = Command.run("echo", ["quick"], timeout: :infinity)
+
+      assert result.status == :ok
+      assert result.output == "quick\n"
+    end
+
+    test "handles output exceeding line buffer (noeol case)" do
+      # Generate a line longer than the buffer size (10KB) to trigger noeol handling
+      # The buffer size is 10 * 1024 = 10240 bytes
+      # Use a command that outputs a very long line
+      long_string = String.duplicate("x", 15_000)
+      result = Command.run("printf", [long_string])
+
+      assert result.status == :ok
+      # Output is captured even though it exceeds the line buffer
+      # The noeol case handles partial lines
+      assert String.length(result.output) > 0
     end
   end
 
@@ -130,6 +165,100 @@ defmodule Otturnaut.CommandTest do
         forward_messages(target)
     after
       5000 -> :ok
+    end
+  end
+
+  describe "default argument coverage" do
+    # Test calling run/2 without opts to exercise the default argument path
+    test "run with only command and args" do
+      result = Command.run("echo", ["hello"])
+      assert result.status == :ok
+      assert result.output == "hello\n"
+    end
+
+    test "Runner.run/2 without opts exercises default argument path" do
+      # This directly calls the Runner module's default argument variant
+      result = Otturnaut.Command.Runner.run("echo", ["test"])
+      assert result.status == :ok
+      assert result.output == "test\n"
+    end
+  end
+
+  describe "port cleanup edge cases" do
+    test "handles port already closed when getting os_pid during timeout" do
+      # Mock PortWrapper to simulate port already closed before os_pid lookup
+      stub(PortWrapper, :info, fn _port, :os_pid -> nil end)
+      stub(PortWrapper, :info, fn _port -> nil end)
+
+      # Run a command that will timeout
+      result = Command.run("sleep", ["10"], timeout: 50)
+
+      assert result.status == :error
+      assert result.error == :timeout
+    end
+
+    test "handles ArgumentError when closing port during cleanup" do
+      call_count = :counters.new(1, [:atomics])
+
+      # Mock PortWrapper to raise ArgumentError on close (simulating race condition)
+      stub(PortWrapper, :info, fn port, :os_pid ->
+        # Return real info for the first call (during kill_port)
+        Port.info(port, :os_pid)
+      end)
+
+      stub(PortWrapper, :info, fn port ->
+        # First call returns info, subsequent calls depend on state
+        count = :counters.get(call_count, 1)
+        :counters.add(call_count, 1, 1)
+
+        if count == 0 do
+          Port.info(port)
+        else
+          # Return non-nil to enter the close branch
+          [:some_info]
+        end
+      end)
+
+      stub(PortWrapper, :close, fn _port ->
+        # Simulate port already closed - raise ArgumentError
+        raise ArgumentError, "argument error"
+      end)
+
+      # Run a command that will timeout to trigger cleanup
+      result = Command.run("sleep", ["10"], timeout: 50)
+
+      assert result.status == :error
+      assert result.error == :timeout
+    end
+  end
+
+  describe "PortWrapper direct usage" do
+    # These tests exercise the real PortWrapper functions for coverage
+    test "info/1 returns port info for open port" do
+      port = Port.open({:spawn, "cat"}, [:binary])
+
+      info = PortWrapper.info(port)
+      assert is_list(info)
+      assert Keyword.has_key?(info, :name)
+
+      Port.close(port)
+    end
+
+    test "info/2 returns specific port info" do
+      port = Port.open({:spawn, "cat"}, [:binary])
+
+      {:os_pid, os_pid} = PortWrapper.info(port, :os_pid)
+      assert is_integer(os_pid)
+
+      Port.close(port)
+    end
+
+    test "close/1 closes a port" do
+      port = Port.open({:spawn, "cat"}, [:binary])
+
+      assert Port.info(port) != nil
+      PortWrapper.close(port)
+      assert Port.info(port) == nil
     end
   end
 end
