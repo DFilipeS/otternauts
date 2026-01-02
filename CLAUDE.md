@@ -59,6 +59,10 @@ Follow the testing pyramid strictly:
 - Modules defined inside tests get redefined on each run, causing warnings with `--warnings-as-errors`
 - Use dependency injection (passing modules as options) for testability
 - For external dependencies that can't be injected (like Erlang's `Port`), create thin wrapper modules and use `mimic` to mock them
+- **Prefer process dictionary for test-local state over named Agents** to keep tests async-safe
+  - Use `Process.put/get` for mock state that's isolated per test
+  - Avoid named processes (e.g., `Agent.start_link(fn -> ... end, name: __MODULE__)`) which require `async: false`
+  - See `test/otturnaut/deployment_test.exs` "undeploy/3" tests and `test/otturnaut/deployment/strategy/blue_green_test.exs` for good examples
 
 ## Documentation
 

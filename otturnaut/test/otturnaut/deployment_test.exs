@@ -263,4 +263,356 @@ defmodule Otturnaut.DeploymentTest do
                Deployment.rollback(deployment, RollbackFailStrategy, %{})
     end
   end
+
+  describe "undeploy/3" do
+    # Mock modules that use process dictionary for state (async-safe)
+    defmodule TestMockRuntime do
+      def status(name, _opts \\ []) do
+        state = Process.get(:test_mock_state, %{})
+        status = get_in(state, [:statuses, name]) || :not_found
+        {:ok, status}
+      end
+
+      def stop(name, _opts \\ []) do
+        state = Process.get(:test_mock_state, %{})
+        new_state = put_in(state, [:statuses, name], :stopped)
+        Process.put(:test_mock_state, new_state)
+        :ok
+      end
+
+      def remove(name, _opts \\ []) do
+        state = Process.get(:test_mock_state, %{})
+
+        new_state =
+          state
+          |> Map.update(:containers, %{}, &Map.delete(&1, name))
+          |> put_in([:statuses, name], :not_found)
+
+        Process.put(:test_mock_state, new_state)
+        :ok
+      end
+    end
+
+    defmodule TestMockAppState do
+      def get(app_id) do
+        state = Process.get(:test_mock_state, %{})
+
+        case get_in(state, [:apps, app_id]) do
+          nil -> {:error, :not_found}
+          app -> {:ok, app}
+        end
+      end
+
+      def put(app_id, app) do
+        state = Process.get(:test_mock_state, %{})
+        new_state = put_in(state, [:apps, app_id], app)
+        Process.put(:test_mock_state, new_state)
+        :ok
+      end
+
+      def delete(app_id) do
+        state = Process.get(:test_mock_state, %{})
+        new_state = Map.update(state, :apps, %{}, &Map.delete(&1, app_id))
+        Process.put(:test_mock_state, new_state)
+        :ok
+      end
+    end
+
+    defmodule TestMockPortManager do
+      def release(port) do
+        state = Process.get(:test_mock_state, %{})
+        released = Map.get(state, :released_ports, [])
+        new_state = Map.put(state, :released_ports, [port | released])
+        Process.put(:test_mock_state, new_state)
+        :ok
+      end
+    end
+
+    defmodule TestMockCaddy do
+      def remove_route(route_id, _opts \\ []) do
+        state = Process.get(:test_mock_state, %{})
+        removed = Map.get(state, :removed_routes, [])
+        new_state = Map.put(state, :removed_routes, [route_id | removed])
+        Process.put(:test_mock_state, new_state)
+        :ok
+      end
+    end
+
+    setup do
+      # Initialize state in process dictionary
+      Process.put(:test_mock_state, %{
+        apps: %{},
+        statuses: %{},
+        containers: %{},
+        released_ports: [],
+        removed_routes: []
+      })
+
+      context = %{
+        runtime: TestMockRuntime,
+        app_state: TestMockAppState,
+        port_manager: TestMockPortManager,
+        caddy: TestMockCaddy
+      }
+
+      {:ok, context: context}
+    end
+
+    # Helper functions
+    defp add_container(name) do
+      state = Process.get(:test_mock_state, %{})
+
+      new_state =
+        state
+        |> put_in([:containers, name], true)
+        |> put_in([:statuses, name], :running)
+
+      Process.put(:test_mock_state, new_state)
+    end
+
+    defp set_container_status(name, status) do
+      state = Process.get(:test_mock_state, %{})
+      new_state = put_in(state, [:statuses, name], status)
+      Process.put(:test_mock_state, new_state)
+    end
+
+    defp get_released_ports do
+      state = Process.get(:test_mock_state, %{})
+      Map.get(state, :released_ports, [])
+    end
+
+    defp get_removed_routes do
+      state = Process.get(:test_mock_state, %{})
+      Map.get(state, :removed_routes, [])
+    end
+
+    test "successfully undeploys app with all resources present", %{context: context} do
+      app = %{
+        deployment_id: "deploy123",
+        container_name: "otturnaut-myapp-deploy123",
+        port: 10042,
+        domains: ["myapp.com"],
+        status: :running
+      }
+
+      TestMockAppState.put("myapp", app)
+      add_container("otturnaut-myapp-deploy123")
+
+      assert :ok = Deployment.undeploy("myapp", context)
+
+      assert {:error, :not_found} = TestMockAppState.get("myapp")
+      assert {:ok, :not_found} = TestMockRuntime.status("otturnaut-myapp-deploy123")
+      assert [10042] = get_released_ports()
+      assert ["myapp-route"] = get_removed_routes()
+    end
+
+    test "idempotent - returns ok when app not found", %{context: context} do
+      assert {:error, :not_found} = TestMockAppState.get("myapp")
+      assert :ok = Deployment.undeploy("myapp", context)
+      assert [] = get_released_ports()
+      assert [] = get_removed_routes()
+    end
+
+    test "handles partial cleanup when container already removed", %{context: context} do
+      app = %{
+        deployment_id: "deploy123",
+        container_name: "otturnaut-myapp-deploy123",
+        port: 10042,
+        domains: ["myapp.com"],
+        status: :running
+      }
+
+      TestMockAppState.put("myapp", app)
+
+      assert :ok = Deployment.undeploy("myapp", context)
+      assert {:error, :not_found} = TestMockAppState.get("myapp")
+      assert [10042] = get_released_ports()
+      assert ["myapp-route"] = get_removed_routes()
+    end
+
+    test "skips stop when container already stopped", %{context: context} do
+      app = %{
+        deployment_id: "deploy123",
+        container_name: "otturnaut-myapp-deploy123",
+        port: 10042,
+        domains: ["myapp.com"],
+        status: :running
+      }
+
+      TestMockAppState.put("myapp", app)
+      add_container("otturnaut-myapp-deploy123")
+      set_container_status("otturnaut-myapp-deploy123", :stopped)
+
+      assert :ok = Deployment.undeploy("myapp", context)
+      assert {:error, :not_found} = TestMockAppState.get("myapp")
+      assert [10042] = get_released_ports()
+      assert ["myapp-route"] = get_removed_routes()
+    end
+
+    test "skips Caddy route removal when no domains configured", %{context: context} do
+      app = %{
+        deployment_id: "deploy123",
+        container_name: "otturnaut-myapp-deploy123",
+        port: 10042,
+        domains: [],
+        status: :running
+      }
+
+      TestMockAppState.put("myapp", app)
+      add_container("otturnaut-myapp-deploy123")
+
+      assert :ok = Deployment.undeploy("myapp", context)
+      assert {:error, :not_found} = TestMockAppState.get("myapp")
+      assert [10042] = get_released_ports()
+      assert [] = get_removed_routes()
+    end
+
+    test "sends progress notifications when subscriber provided", %{context: context} do
+      app = %{
+        deployment_id: "deploy123",
+        container_name: "otturnaut-myapp-deploy123",
+        port: 10042,
+        domains: ["myapp.com"],
+        status: :running
+      }
+
+      TestMockAppState.put("myapp", app)
+      add_container("otturnaut-myapp-deploy123")
+
+      assert :ok = Deployment.undeploy("myapp", context, subscriber: self())
+
+      assert_receive {:undeploy_progress, %{step: :retrieve_state, message: _}}
+      assert_receive {:undeploy_progress, %{step: :stop_container, message: _}}
+      assert_receive {:undeploy_progress, %{step: :remove_container, message: _}}
+      assert_receive {:undeploy_progress, %{step: :remove_routes, message: _}}
+      assert_receive {:undeploy_progress, %{step: :release_port, message: "Releasing port 10042"}}
+      assert_receive {:undeploy_progress, %{step: :clear_state, message: _}}
+    end
+
+    test "passes opts correctly to Caddy", %{context: context} do
+      defmodule OptsTrackingCaddy do
+        def remove_route(_route_id, opts) do
+          Process.put(:tracked_opts, opts)
+          # Also record the route removal
+          state = Process.get(:test_mock_state, %{})
+          removed = Map.get(state, :removed_routes, [])
+          new_state = Map.put(state, :removed_routes, ["myapp-route" | removed])
+          Process.put(:test_mock_state, new_state)
+          :ok
+        end
+      end
+
+      custom_context = %{context | caddy: OptsTrackingCaddy}
+
+      app = %{
+        deployment_id: "deploy123",
+        container_name: "otturnaut-myapp-deploy123",
+        port: 10042,
+        domains: ["myapp.com"],
+        status: :running
+      }
+
+      TestMockAppState.put("myapp", app)
+      add_container("otturnaut-myapp-deploy123")
+
+      custom_opts = [subscriber: self(), custom: :value]
+      assert :ok = Deployment.undeploy("myapp", custom_context, custom_opts)
+      assert Process.get(:tracked_opts) == custom_opts
+    end
+
+    test "continues cleanup when stop fails", %{context: context} do
+      defmodule FailingStopRuntime do
+        def status(_name, _opts \\ []), do: {:ok, :running}
+        def stop(_name, _opts \\ []), do: {:error, :stop_failed}
+        def remove(_name, _opts \\ []), do: :ok
+      end
+
+      custom_context = %{context | runtime: FailingStopRuntime}
+
+      app = %{
+        deployment_id: "deploy123",
+        container_name: "otturnaut-myapp-deploy123",
+        port: 10042,
+        domains: [],
+        status: :running
+      }
+
+      TestMockAppState.put("myapp", app)
+
+      assert :ok = Deployment.undeploy("myapp", custom_context)
+      assert {:error, :not_found} = TestMockAppState.get("myapp")
+      assert [10042] = get_released_ports()
+    end
+
+    test "continues cleanup when status check fails", %{context: context} do
+      defmodule FailingStatusRuntime do
+        def status(_name, _opts \\ []), do: {:error, :status_check_failed}
+        def stop(_name, _opts \\ []), do: :ok
+        def remove(_name, _opts \\ []), do: :ok
+      end
+
+      custom_context = %{context | runtime: FailingStatusRuntime}
+
+      app = %{
+        deployment_id: "deploy123",
+        container_name: "otturnaut-myapp-deploy123",
+        port: 10042,
+        domains: [],
+        status: :running
+      }
+
+      TestMockAppState.put("myapp", app)
+
+      assert :ok = Deployment.undeploy("myapp", custom_context)
+      assert {:error, :not_found} = TestMockAppState.get("myapp")
+      assert [10042] = get_released_ports()
+    end
+
+    test "continues cleanup when remove fails", %{context: context} do
+      defmodule FailingRemoveRuntime do
+        def status(_name, _opts \\ []), do: {:ok, :running}
+        def stop(_name, _opts \\ []), do: :ok
+        def remove(_name, _opts \\ []), do: {:error, :remove_failed}
+      end
+
+      custom_context = %{context | runtime: FailingRemoveRuntime}
+
+      app = %{
+        deployment_id: "deploy123",
+        container_name: "otturnaut-myapp-deploy123",
+        port: 10042,
+        domains: [],
+        status: :running
+      }
+
+      TestMockAppState.put("myapp", app)
+
+      assert :ok = Deployment.undeploy("myapp", custom_context)
+      assert {:error, :not_found} = TestMockAppState.get("myapp")
+      assert [10042] = get_released_ports()
+    end
+
+    test "continues cleanup when Caddy route removal fails", %{context: context} do
+      defmodule FailingCaddy do
+        def remove_route(_route_id, _opts), do: {:error, :caddy_unavailable}
+      end
+
+      custom_context = %{context | caddy: FailingCaddy}
+
+      app = %{
+        deployment_id: "deploy123",
+        container_name: "otturnaut-myapp-deploy123",
+        port: 10042,
+        domains: ["myapp.com"],
+        status: :running
+      }
+
+      TestMockAppState.put("myapp", app)
+      add_container("otturnaut-myapp-deploy123")
+
+      assert :ok = Deployment.undeploy("myapp", custom_context)
+      assert {:error, :not_found} = TestMockAppState.get("myapp")
+      assert [10042] = get_released_ports()
+    end
+  end
 end

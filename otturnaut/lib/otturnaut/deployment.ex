@@ -11,6 +11,7 @@ defmodule Otturnaut.Deployment do
   2. Execute with a strategy via `execute/3`
   3. On success, deployment contains new container info
   4. On failure, rollback cleans up partial state
+  5. To remove a deployed app, use `undeploy/3`
 
   ## Example
 
@@ -38,7 +39,11 @@ defmodule Otturnaut.Deployment do
           Deployment.rollback(partial, Strategy.BlueGreen, context)
       end
 
+      # Later, to remove the application
+      Deployment.undeploy("myapp", context)
+
   """
+  require Logger
 
   @type status :: :pending | :in_progress | :completed | :failed | :rolled_back
 
@@ -131,6 +136,83 @@ defmodule Otturnaut.Deployment do
   end
 
   @doc """
+  Undeploys an application by removing all its resources.
+
+  This operation is idempotent - running it multiple times has the same effect
+  as running it once. Missing resources are treated as successful cleanup.
+
+  ## Undeploy Flow
+
+  1. Retrieve app state (return :ok if not found)
+  2. Stop container (if running)
+  3. Remove container
+  4. Remove Caddy routes (if domains configured)
+  5. Release allocated port
+  6. Clear application state
+
+  ## Options
+
+  - `:subscriber` - PID to receive progress updates
+
+  ## Examples
+
+      context = %{
+        runtime: Otturnaut.Runtime.Docker,
+        app_state: Otturnaut.AppState,
+        port_manager: Otturnaut.PortManager,
+        caddy: Otturnaut.Caddy
+      }
+
+      # Basic undeploy
+      :ok = Deployment.undeploy("myapp", context)
+
+      # With progress notifications
+      :ok = Deployment.undeploy("myapp", context, subscriber: self())
+
+      # Idempotent - safe to run again
+      :ok = Deployment.undeploy("myapp", context)
+
+  """
+  @spec undeploy(String.t(), map(), keyword()) :: :ok
+  def undeploy(app_id, context, opts \\ []) do
+    %{
+      runtime: runtime,
+      app_state: app_state,
+      port_manager: port_manager,
+      caddy: caddy
+    } = context
+
+    runtime_opts = Map.get(context, :runtime_opts, [])
+
+    # Step 1: Retrieve app state
+    notify_undeploy_progress(opts, :retrieve_state, "Retrieving application state")
+
+    case app_state.get(app_id) do
+      {:error, :not_found} ->
+        # Idempotent: nothing to clean up
+        :ok
+
+      {:ok, app} ->
+        # Step 2: Stop container if running
+        stop_container_if_running(app.container_name, runtime, runtime_opts, opts)
+
+        # Step 3: Remove container
+        remove_container(app.container_name, runtime, runtime_opts, opts)
+
+        # Step 4: Remove Caddy routes (if domains configured)
+        remove_routes_if_configured(app_id, app.domains, caddy, opts)
+
+        # Step 5: Release port
+        release_port(app.port, port_manager, opts)
+
+        # Step 6: Clear app state
+        clear_app_state(app_id, app_state, opts)
+
+        :ok
+    end
+  end
+
+  @doc """
   Generates a container name for the deployment.
 
   Format: `otturnaut-{app_id}-{deploy_id}`
@@ -168,5 +250,83 @@ defmodule Otturnaut.Deployment do
 
   defp generate_id do
     :crypto.strong_rand_bytes(6) |> Base.url_encode64(padding: false)
+  end
+
+  # Undeploy helpers
+
+  defp stop_container_if_running(container_name, runtime, runtime_opts, opts) do
+    notify_undeploy_progress(opts, :stop_container, "Stopping container")
+
+    case runtime.status(container_name, runtime_opts) do
+      {:ok, :running} ->
+        case runtime.stop(container_name, runtime_opts) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning("Failed to stop container #{container_name}: #{inspect(reason)}")
+            :ok
+        end
+
+      {:ok, _other_status} ->
+        # Container is stopped or not found, skip stop
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to check container status #{container_name}: #{inspect(reason)}")
+        :ok
+    end
+  end
+
+  defp remove_container(container_name, runtime, runtime_opts, opts) do
+    notify_undeploy_progress(opts, :remove_container, "Removing container")
+
+    case runtime.remove(container_name, runtime_opts) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to remove container #{container_name}: #{inspect(reason)}")
+        :ok
+    end
+  end
+
+  defp remove_routes_if_configured(app_id, domains, caddy, opts) do
+    if domains == [] do
+      :ok
+    else
+      notify_undeploy_progress(opts, :remove_routes, "Removing Caddy routes")
+      route_id = "#{app_id}-route"
+
+      case caddy.remove_route(route_id, opts) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Failed to remove Caddy route #{route_id}: #{inspect(reason)}")
+          :ok
+      end
+    end
+  end
+
+  defp release_port(port, port_manager, opts) do
+    notify_undeploy_progress(opts, :release_port, "Releasing port #{port}")
+    port_manager.release(port)
+    :ok
+  end
+
+  defp clear_app_state(app_id, app_state, opts) do
+    notify_undeploy_progress(opts, :clear_state, "Clearing application state")
+    app_state.delete(app_id)
+    :ok
+  end
+
+  defp notify_undeploy_progress(opts, step, message) do
+    case Keyword.get(opts, :subscriber) do
+      nil -> :ok
+      pid -> send(pid, {:undeploy_progress, %{step: step, message: message}})
+    end
+
+    :ok
   end
 end

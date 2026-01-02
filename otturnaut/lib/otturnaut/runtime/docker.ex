@@ -55,7 +55,14 @@ defmodule Otturnaut.Runtime.Docker do
     format = "{{.Names}}\t{{.ID}}\t{{.State}}\t{{.Image}}\t{{.Ports}}"
     cmd = command_module(opts)
 
-    case cmd.run(binary(opts), ["ps", "-a", "--filter", "name=#{@otturnaut_prefix}", "--format", format]) do
+    case cmd.run(binary(opts), [
+           "ps",
+           "-a",
+           "--filter",
+           "name=#{@otturnaut_prefix}",
+           "--format",
+           format
+         ]) do
       %Result{status: :ok, output: output} ->
         apps = parse_container_list(output)
         {:ok, apps}
@@ -129,6 +136,11 @@ defmodule Otturnaut.Runtime.Docker do
         {:ok, status}
 
       %Result{status: :error, error: {:exit, 1}} ->
+        # Docker returns exit code 1 for "no such container"
+        {:ok, :not_found}
+
+      %Result{status: :error, error: {:exit, 125}} ->
+        # Podman returns exit code 125 for "no such object"
         {:ok, :not_found}
 
       %Result{status: :error, error: error} ->

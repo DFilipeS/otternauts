@@ -53,6 +53,11 @@ defmodule Otturnaut.Runtime.DockerTest do
       Result.failure(1, "", 50)
     end
 
+    def run("docker", ["inspect", "-f", "{{.State.Status}}", "not-found-podman"], _opts) do
+      # Podman returns exit code 125 for "no such object"
+      Result.failure(125, "Error: no such object: \"not-found-podman\"\n", 50)
+    end
+
     def run("docker", ["port", "container-with-port"], _opts) do
       Result.success("3000/tcp -> 0.0.0.0:10042\n", 50)
     end
@@ -171,7 +176,9 @@ defmodule Otturnaut.Runtime.DockerTest do
     def run(cmd, args), do: run(cmd, args, [])
 
     def run("docker", ["ps" | _], _opts) do
-      output = "otturnaut-onlyappid\tcontainer123\trunning\timage:latest\t0.0.0.0:10000->3000/tcp\n"
+      output =
+        "otturnaut-onlyappid\tcontainer123\trunning\timage:latest\t0.0.0.0:10000->3000/tcp\n"
+
       Result.success(output, 50)
     end
   end
@@ -182,7 +189,9 @@ defmodule Otturnaut.Runtime.DockerTest do
     def run(cmd, args), do: run(cmd, args, [])
 
     def run("docker", ["ps" | _], _opts) do
-      output = "random-container-name\tcontainer123\trunning\timage:latest\t0.0.0.0:10000->3000/tcp\n"
+      output =
+        "random-container-name\tcontainer123\trunning\timage:latest\t0.0.0.0:10000->3000/tcp\n"
+
       Result.success(output, 50)
     end
   end
@@ -193,7 +202,9 @@ defmodule Otturnaut.Runtime.DockerTest do
     def run(cmd, args), do: run(cmd, args, [])
 
     def run("docker", ["ps" | _], _opts) do
-      output = "otturnaut-myapp-abc123\tcontainer123\tcreating\timage:latest\t0.0.0.0:10000->3000/tcp\n"
+      output =
+        "otturnaut-myapp-abc123\tcontainer123\tcreating\timage:latest\t0.0.0.0:10000->3000/tcp\n"
+
       Result.success(output, 50)
     end
   end
@@ -282,7 +293,9 @@ defmodule Otturnaut.Runtime.DockerTest do
     end
 
     test "returns error on failure" do
-      {:error, {reason, _output}} = Docker.remove("mycontainer", command_module: MockCommandErrors)
+      {:error, {reason, _output}} =
+        Docker.remove("mycontainer", command_module: MockCommandErrors)
+
       assert reason == {:exit, 1}
     end
   end
@@ -313,8 +326,13 @@ defmodule Otturnaut.Runtime.DockerTest do
       assert status == :unknown
     end
 
-    test "returns :not_found for non-existent container" do
+    test "returns :not_found for non-existent container (Docker exit code 1)" do
       {:ok, status} = Docker.status("not-found", command_module: MockCommand)
+      assert status == :not_found
+    end
+
+    test "returns :not_found for non-existent container (Podman exit code 125)" do
+      {:ok, status} = Docker.status("not-found-podman", command_module: MockCommand)
       assert status == :not_found
     end
 
@@ -469,7 +487,9 @@ defmodule Otturnaut.Runtime.DockerTest do
     def run(cmd, args), do: run(cmd, args, [])
 
     def run("podman", ["ps", "-a", "--filter", "name=otturnaut-", "--format", _format], _opts) do
-      output = "otturnaut-myapp-abc123\tcontainer123\trunning\tmyapp:latest\t0.0.0.0:10042->3000/tcp\n"
+      output =
+        "otturnaut-myapp-abc123\tcontainer123\trunning\tmyapp:latest\t0.0.0.0:10042->3000/tcp\n"
+
       Result.success(output, 100)
     end
 
@@ -539,22 +559,30 @@ defmodule Otturnaut.Runtime.DockerTest do
     end
 
     test "status uses custom binary" do
-      {:ok, status} = Docker.status("running-container", command_module: PodmanMock, binary: "podman")
+      {:ok, status} =
+        Docker.status("running-container", command_module: PodmanMock, binary: "podman")
+
       assert status == :running
     end
 
     test "get_port uses custom binary" do
-      {:ok, port} = Docker.get_port("container-with-port", command_module: PodmanMock, binary: "podman")
+      {:ok, port} =
+        Docker.get_port("container-with-port", command_module: PodmanMock, binary: "podman")
+
       assert port == 10042
     end
 
     test "load_image uses custom binary" do
-      {:ok, image} = Docker.load_image("/path/to/image.tar", command_module: PodmanMock, binary: "podman")
+      {:ok, image} =
+        Docker.load_image("/path/to/image.tar", command_module: PodmanMock, binary: "podman")
+
       assert image == "myapp:latest"
     end
 
     test "build_image uses custom binary (sync)" do
-      {:ok, tag} = Docker.build_image("/app", "myapp:latest", command_module: PodmanMock, binary: "podman")
+      {:ok, tag} =
+        Docker.build_image("/app", "myapp:latest", command_module: PodmanMock, binary: "podman")
+
       assert tag == "myapp:latest"
     end
 
