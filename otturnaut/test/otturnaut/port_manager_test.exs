@@ -22,7 +22,13 @@ defmodule Otturnaut.PortManagerTest do
     {:ok, pid} = PortManager.start_link(name: server_name, port_range: @test_range)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      if Process.alive?(pid) do
+        try do
+          GenServer.stop(pid)
+        catch
+          :exit, _ -> :ok
+        end
+      end
     end)
 
     {:ok, server: server_name}
@@ -148,7 +154,8 @@ defmodule Otturnaut.PortManagerTest do
       # Random selection will likely hit allocated ports multiple times
       # Eventually triggering the sequential fallback
       {:ok, port} = PortManager.allocate(server)
-      assert port == 50010  # Sequential would find this
+      # Sequential would find this
+      assert port == 50010
 
       # Release and try again multiple times to increase coverage
       PortManager.release(port, server)
@@ -161,5 +168,4 @@ defmodule Otturnaut.PortManagerTest do
       end
     end
   end
-
 end

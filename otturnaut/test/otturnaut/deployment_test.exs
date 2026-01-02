@@ -266,6 +266,7 @@ defmodule Otturnaut.DeploymentTest do
 
   describe "undeploy/3" do
     # Mock modules that use process dictionary for state (async-safe)
+    # Defined at describe level to avoid recompilation warnings
     defmodule TestMockRuntime do
       def status(name, _opts \\ []) do
         state = Process.get(:test_mock_state, %{})
@@ -336,6 +337,41 @@ defmodule Otturnaut.DeploymentTest do
         Process.put(:test_mock_state, new_state)
         :ok
       end
+    end
+
+    # Failure scenario mocks
+    defmodule UndeployOptsTrackingCaddy do
+      def remove_route(_route_id, opts) do
+        Process.put(:tracked_opts, opts)
+        # Also record the route removal
+        state = Process.get(:test_mock_state, %{})
+        removed = Map.get(state, :removed_routes, [])
+        new_state = Map.put(state, :removed_routes, ["myapp-route" | removed])
+        Process.put(:test_mock_state, new_state)
+        :ok
+      end
+    end
+
+    defmodule UndeployFailingStopRuntime do
+      def status(_name, _opts \\ []), do: {:ok, :running}
+      def stop(_name, _opts \\ []), do: {:error, :stop_failed}
+      def remove(_name, _opts \\ []), do: :ok
+    end
+
+    defmodule UndeployFailingStatusRuntime do
+      def status(_name, _opts \\ []), do: {:error, :status_check_failed}
+      def stop(_name, _opts \\ []), do: :ok
+      def remove(_name, _opts \\ []), do: :ok
+    end
+
+    defmodule UndeployFailingRemoveRuntime do
+      def status(_name, _opts \\ []), do: {:ok, :running}
+      def stop(_name, _opts \\ []), do: :ok
+      def remove(_name, _opts \\ []), do: {:error, :remove_failed}
+    end
+
+    defmodule UndeployFailingCaddy do
+      def remove_route(_route_id, _opts), do: {:error, :caddy_unavailable}
     end
 
     setup do
@@ -490,19 +526,7 @@ defmodule Otturnaut.DeploymentTest do
     end
 
     test "passes opts correctly to Caddy", %{context: context} do
-      defmodule OptsTrackingCaddy do
-        def remove_route(_route_id, opts) do
-          Process.put(:tracked_opts, opts)
-          # Also record the route removal
-          state = Process.get(:test_mock_state, %{})
-          removed = Map.get(state, :removed_routes, [])
-          new_state = Map.put(state, :removed_routes, ["myapp-route" | removed])
-          Process.put(:test_mock_state, new_state)
-          :ok
-        end
-      end
-
-      custom_context = %{context | caddy: OptsTrackingCaddy}
+      custom_context = %{context | caddy: UndeployOptsTrackingCaddy}
 
       app = %{
         deployment_id: "deploy123",
@@ -521,13 +545,7 @@ defmodule Otturnaut.DeploymentTest do
     end
 
     test "continues cleanup when stop fails", %{context: context} do
-      defmodule FailingStopRuntime do
-        def status(_name, _opts \\ []), do: {:ok, :running}
-        def stop(_name, _opts \\ []), do: {:error, :stop_failed}
-        def remove(_name, _opts \\ []), do: :ok
-      end
-
-      custom_context = %{context | runtime: FailingStopRuntime}
+      custom_context = %{context | runtime: UndeployFailingStopRuntime}
 
       app = %{
         deployment_id: "deploy123",
@@ -545,13 +563,7 @@ defmodule Otturnaut.DeploymentTest do
     end
 
     test "continues cleanup when status check fails", %{context: context} do
-      defmodule FailingStatusRuntime do
-        def status(_name, _opts \\ []), do: {:error, :status_check_failed}
-        def stop(_name, _opts \\ []), do: :ok
-        def remove(_name, _opts \\ []), do: :ok
-      end
-
-      custom_context = %{context | runtime: FailingStatusRuntime}
+      custom_context = %{context | runtime: UndeployFailingStatusRuntime}
 
       app = %{
         deployment_id: "deploy123",
@@ -569,13 +581,7 @@ defmodule Otturnaut.DeploymentTest do
     end
 
     test "continues cleanup when remove fails", %{context: context} do
-      defmodule FailingRemoveRuntime do
-        def status(_name, _opts \\ []), do: {:ok, :running}
-        def stop(_name, _opts \\ []), do: :ok
-        def remove(_name, _opts \\ []), do: {:error, :remove_failed}
-      end
-
-      custom_context = %{context | runtime: FailingRemoveRuntime}
+      custom_context = %{context | runtime: UndeployFailingRemoveRuntime}
 
       app = %{
         deployment_id: "deploy123",
@@ -593,11 +599,7 @@ defmodule Otturnaut.DeploymentTest do
     end
 
     test "continues cleanup when Caddy route removal fails", %{context: context} do
-      defmodule FailingCaddy do
-        def remove_route(_route_id, _opts), do: {:error, :caddy_unavailable}
-      end
-
-      custom_context = %{context | caddy: FailingCaddy}
+      custom_context = %{context | caddy: UndeployFailingCaddy}
 
       app = %{
         deployment_id: "deploy123",

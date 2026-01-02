@@ -74,7 +74,13 @@ defmodule Otturnaut.AppStateTest do
     {:ok, pid} = AppState.start_link(name: server_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      if Process.alive?(pid) do
+        try do
+          GenServer.stop(pid)
+        catch
+          :exit, _ -> :ok
+        end
+      end
     end)
 
     {:ok, server: server_name}
@@ -148,8 +154,21 @@ defmodule Otturnaut.AppStateTest do
     end
 
     test "returns all apps", %{server: server} do
-      app1 = %{deployment_id: "abc", container_name: "otturnaut-app1-abc", port: 10042, domains: [], status: :running}
-      app2 = %{deployment_id: "def", container_name: "otturnaut-app2-def", port: 10043, domains: [], status: :running}
+      app1 = %{
+        deployment_id: "abc",
+        container_name: "otturnaut-app1-abc",
+        port: 10042,
+        domains: [],
+        status: :running
+      }
+
+      app2 = %{
+        deployment_id: "def",
+        container_name: "otturnaut-app2-def",
+        port: 10043,
+        domains: [],
+        status: :running
+      }
 
       AppState.put("app1", app1, server)
       AppState.put("app2", app2, server)
@@ -204,8 +223,21 @@ defmodule Otturnaut.AppStateTest do
 
   describe "clear/0" do
     test "removes all apps", %{server: server} do
-      app1 = %{deployment_id: "abc", container_name: "otturnaut-app1-abc", port: 10042, domains: [], status: :running}
-      app2 = %{deployment_id: "def", container_name: "otturnaut-app2-def", port: 10043, domains: [], status: :running}
+      app1 = %{
+        deployment_id: "abc",
+        container_name: "otturnaut-app1-abc",
+        port: 10042,
+        domains: [],
+        status: :running
+      }
+
+      app2 = %{
+        deployment_id: "def",
+        container_name: "otturnaut-app2-def",
+        port: 10043,
+        domains: [],
+        status: :running
+      }
 
       AppState.put("app1", app1, server)
       AppState.put("app2", app2, server)
