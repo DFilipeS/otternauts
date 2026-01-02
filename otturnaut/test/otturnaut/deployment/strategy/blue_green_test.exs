@@ -1,167 +1,126 @@
 defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Otturnaut.Deployment
   alias Otturnaut.Deployment.Strategy.BlueGreen
 
-  # Mock modules for testing
-  # Note: These use globally named agents, so tests must run sequentially (async: false)
-  # The BlueGreen strategy expects modules with functions like `runtime.start(opts)`
+  # Mock modules using process dictionary for state (async-safe)
   defmodule MockRuntime do
-    use Agent
-
-    def start_link(_opts \\ []) do
-      Agent.start_link(fn -> %{containers: %{}, statuses: %{}} end, name: __MODULE__)
-    end
-
-    def stop do
-      if Process.whereis(__MODULE__) do
-        Agent.stop(__MODULE__)
-      end
-    end
-
-    def set_status(name, status) do
-      Agent.update(__MODULE__, fn state ->
-        put_in(state, [:statuses, name], status)
-      end)
-    end
-
     def start(opts) do
       %{name: name} = opts
       container_id = "container-#{System.unique_integer([:positive])}"
 
-      Agent.update(__MODULE__, fn state ->
+      state = Process.get(:blue_green_test_state, %{})
+
+      new_state =
         state
         |> put_in([:containers, name], container_id)
         |> put_in([:statuses, name], :running)
-      end)
+
+      Process.put(:blue_green_test_state, new_state)
 
       {:ok, container_id}
     end
 
     def stop(name, _opts \\ []) do
-      Agent.update(__MODULE__, fn state ->
-        put_in(state, [:statuses, name], :stopped)
-      end)
-
+      state = Process.get(:blue_green_test_state, %{})
+      new_state = put_in(state, [:statuses, name], :stopped)
+      Process.put(:blue_green_test_state, new_state)
       :ok
     end
 
     def remove(name, _opts \\ []) do
-      Agent.update(__MODULE__, fn state ->
-        %{state | containers: Map.delete(state.containers, name)}
-      end)
-
+      state = Process.get(:blue_green_test_state, %{})
+      new_state = %{state | containers: Map.delete(state.containers || %{}, name)}
+      Process.put(:blue_green_test_state, new_state)
       :ok
     end
 
     def status(name, _opts \\ []) do
-      status = Agent.get(__MODULE__, fn state -> get_in(state, [:statuses, name]) end)
-      {:ok, status || :not_found}
+      state = Process.get(:blue_green_test_state, %{})
+      status = get_in(state, [:statuses, name]) || :not_found
+      {:ok, status}
     end
   end
 
   defmodule MockPortManager do
-    use Agent
-
-    def start_link(_opts \\ []) do
-      Agent.start_link(fn -> %{next_port: 10000, allocated: []} end, name: __MODULE__)
-    end
-
-    def stop do
-      if Process.whereis(__MODULE__) do
-        Agent.stop(__MODULE__)
-      end
-    end
-
     def allocate do
-      port =
-        Agent.get_and_update(__MODULE__, fn state ->
-          port = state.next_port
-          {port, %{state | next_port: port + 1, allocated: [port | state.allocated]}}
-        end)
+      state = Process.get(:blue_green_test_state, %{})
+      next_port = Map.get(state, :next_port, 10000)
+      allocated = Map.get(state, :allocated, [])
 
-      {:ok, port}
+      new_state =
+        state
+        |> Map.put(:next_port, next_port + 1)
+        |> Map.put(:allocated, [next_port | allocated])
+
+      Process.put(:blue_green_test_state, new_state)
+
+      {:ok, next_port}
     end
 
     def release(port) do
-      Agent.update(__MODULE__, fn state ->
-        %{state | allocated: List.delete(state.allocated, port)}
-      end)
-
+      state = Process.get(:blue_green_test_state, %{})
+      allocated = Map.get(state, :allocated, [])
+      new_state = Map.put(state, :allocated, List.delete(allocated, port))
+      Process.put(:blue_green_test_state, new_state)
       :ok
     end
 
     def mark_in_use(port) do
-      Agent.update(__MODULE__, fn state ->
-        %{state | allocated: [port | state.allocated]}
-      end)
-
+      state = Process.get(:blue_green_test_state, %{})
+      allocated = Map.get(state, :allocated, [])
+      new_state = Map.put(state, :allocated, [port | allocated])
+      Process.put(:blue_green_test_state, new_state)
       :ok
     end
   end
 
   defmodule MockAppState do
-    use Agent
-
-    def start_link(_opts \\ []) do
-      Agent.start_link(fn -> %{} end, name: __MODULE__)
-    end
-
-    def stop do
-      if Process.whereis(__MODULE__) do
-        Agent.stop(__MODULE__)
-      end
-    end
-
     def get(app_id) do
-      case Agent.get(__MODULE__, &Map.get(&1, app_id)) do
+      state = Process.get(:blue_green_test_state, %{})
+      apps = Map.get(state, :apps, %{})
+
+      case Map.get(apps, app_id) do
         nil -> {:error, :not_found}
         app -> {:ok, app}
       end
     end
 
     def put(app_id, app) do
-      Agent.update(__MODULE__, &Map.put(&1, app_id, app))
+      state = Process.get(:blue_green_test_state, %{})
+      apps = Map.get(state, :apps, %{})
+      new_state = Map.put(state, :apps, Map.put(apps, app_id, app))
+      Process.put(:blue_green_test_state, new_state)
       :ok
     end
   end
 
   defmodule MockCaddy do
-    use Agent
-
-    def start_link(_opts \\ []) do
-      Agent.start_link(fn -> %{routes: %{}} end, name: __MODULE__)
-    end
-
-    def stop do
-      if Process.whereis(__MODULE__) do
-        Agent.stop(__MODULE__)
-      end
-    end
-
     def add_route(route, _opts \\ []) do
-      Agent.update(__MODULE__, fn state ->
-        put_in(state, [:routes, route.id], route)
-      end)
-
+      state = Process.get(:blue_green_test_state, %{})
+      routes = Map.get(state, :routes, %{})
+      new_state = Map.put(state, :routes, Map.put(routes, route.id, route))
+      Process.put(:blue_green_test_state, new_state)
       :ok
     end
 
     def remove_route(route_id, _opts \\ []) do
-      Agent.update(__MODULE__, fn state ->
-        %{state | routes: Map.delete(state.routes, route_id)}
-      end)
-
+      state = Process.get(:blue_green_test_state, %{})
+      routes = Map.get(state, :routes, %{})
+      new_state = Map.put(state, :routes, Map.delete(routes, route_id))
+      Process.put(:blue_green_test_state, new_state)
       :ok
     end
 
     def get_routes do
-      Agent.get(__MODULE__, &Map.values(&1.routes))
+      state = Process.get(:blue_green_test_state, %{})
+      routes = Map.get(state, :routes, %{})
+      Map.values(routes)
     end
   end
 
-  # Failure scenario mocks - defined at module level to avoid recompilation warnings
+  # Failure scenario mocks
   defmodule FailingPortManager do
     def allocate, do: {:error, :exhausted}
   end
@@ -182,23 +141,23 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
     def add_route(_route, _opts), do: {:error, :caddy_unavailable}
   end
 
-  setup do
-    # Stop any existing mocks first to ensure clean state
-    for mock <- [MockRuntime, MockPortManager, MockAppState, MockCaddy] do
-      if pid = Process.whereis(mock) do
-        try do
-          Agent.stop(pid)
-        catch
-          :exit, _ -> :ok
-        end
-      end
-    end
+  # Helper functions for tests
+  defp set_container_status(name, status) do
+    state = Process.get(:blue_green_test_state, %{})
+    new_state = put_in(state, [:statuses, name], status)
+    Process.put(:blue_green_test_state, new_state)
+  end
 
-    # Start all mocks
-    {:ok, _} = MockRuntime.start_link()
-    {:ok, _} = MockPortManager.start_link()
-    {:ok, _} = MockAppState.start_link()
-    {:ok, _} = MockCaddy.start_link()
+  setup do
+    # Initialize state in process dictionary
+    Process.put(:blue_green_test_state, %{
+      containers: %{},
+      statuses: %{},
+      next_port: 10000,
+      allocated: [],
+      apps: %{},
+      routes: %{}
+    })
 
     on_exit(fn ->
       for mock <- [MockRuntime, MockPortManager, MockAppState, MockCaddy] do
@@ -285,7 +244,7 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
       })
 
       # Mark old container as running
-      MockRuntime.set_status("otturnaut-myapp-old-deploy", :running)
+      set_container_status("otturnaut-myapp-old-deploy", :running)
 
       deployment =
         Deployment.new(%{
@@ -417,7 +376,7 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
       }
 
       # Mark container as running
-      MockRuntime.set_status("otturnaut-myapp-deploy-1", :running)
+      set_container_status("otturnaut-myapp-deploy-1", :running)
       MockPortManager.mark_in_use(10000)
 
       assert :ok = BlueGreen.rollback(deployment, context, [])
@@ -502,7 +461,7 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
         error: nil
       }
 
-      MockRuntime.set_status("otturnaut-myapp-deploy-1", :running)
+      set_container_status("otturnaut-myapp-deploy-1", :running)
 
       assert :ok = BlueGreen.rollback(deployment, context, [])
 
@@ -549,100 +508,48 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
 
   # Mock runtime that captures the opts passed to it
   defmodule OptsCapturingRuntime do
-    use Agent
-
-    def start_link(_opts \\ []) do
-      Agent.start_link(fn -> %{calls: []} end, name: __MODULE__)
-    end
-
-    def stop do
-      if Process.whereis(__MODULE__), do: Agent.stop(__MODULE__)
-    end
-
-    def get_calls do
-      Agent.get(__MODULE__, & &1.calls)
-    end
-
     def start(opts) do
-      Agent.update(__MODULE__, fn state ->
-        %{state | calls: [{:start, opts} | state.calls]}
-      end)
-
+      calls = Process.get(:opts_capture_calls, [])
+      Process.put(:opts_capture_calls, [{:start, opts} | calls])
       {:ok, "container-123"}
     end
 
     def status(name, opts \\ []) do
-      Agent.update(__MODULE__, fn state ->
-        %{state | calls: [{:status, name, opts} | state.calls]}
-      end)
-
+      calls = Process.get(:opts_capture_calls, [])
+      Process.put(:opts_capture_calls, [{:status, name, opts} | calls])
       {:ok, :running}
     end
 
     def stop(name, opts \\ []) do
-      Agent.update(__MODULE__, fn state ->
-        %{state | calls: [{:stop, name, opts} | state.calls]}
-      end)
-
+      calls = Process.get(:opts_capture_calls, [])
+      Process.put(:opts_capture_calls, [{:stop, name, opts} | calls])
       :ok
     end
 
     def remove(name, opts \\ []) do
-      Agent.update(__MODULE__, fn state ->
-        %{state | calls: [{:remove, name, opts} | state.calls]}
-      end)
-
+      calls = Process.get(:opts_capture_calls, [])
+      Process.put(:opts_capture_calls, [{:remove, name, opts} | calls])
       :ok
+    end
+
+    def get_calls do
+      Process.get(:opts_capture_calls, [])
     end
   end
 
   describe "runtime_opts passthrough" do
     setup do
-      # Stop any existing mocks first to ensure clean state
-      for mock <- [OptsCapturingRuntime, MockRuntime, MockPortManager, MockAppState, MockCaddy] do
-        if pid = Process.whereis(mock) do
-          try do
-            Agent.stop(pid)
-          catch
-            :exit, _ -> :ok
-          end
-        end
-      end
+      # Initialize state in process dictionary
+      Process.put(:blue_green_test_state, %{
+        containers: %{},
+        statuses: %{},
+        next_port: 10000,
+        allocated: [],
+        apps: %{},
+        routes: %{}
+      })
 
-      # Small delay to ensure processes are fully stopped
-      Process.sleep(10)
-
-      case OptsCapturingRuntime.start_link() do
-        {:ok, _} -> :ok
-        {:error, {:already_started, _}} -> :ok
-      end
-
-      case MockPortManager.start_link() do
-        {:ok, _} -> :ok
-        {:error, {:already_started, _}} -> :ok
-      end
-
-      case MockAppState.start_link() do
-        {:ok, _} -> :ok
-        {:error, {:already_started, _}} -> :ok
-      end
-
-      case MockCaddy.start_link() do
-        {:ok, _} -> :ok
-        {:error, {:already_started, _}} -> :ok
-      end
-
-      on_exit(fn ->
-        for mock <- [OptsCapturingRuntime, MockPortManager, MockAppState, MockCaddy] do
-          if pid = Process.whereis(mock) do
-            try do
-              Agent.stop(pid)
-            catch
-              :exit, _ -> :ok
-            end
-          end
-        end
-      end)
+      Process.put(:opts_capture_calls, [])
 
       :ok
     end
