@@ -24,6 +24,7 @@ defmodule Otturnaut.Command.Runner do
           {:timeout, timeout()}
           | {:subscriber, pid()}
           | {:working_dir, String.t()}
+          | {:env, [{String.t(), String.t()}]}
 
   @doc """
   Runs the command and streams output to the subscriber.
@@ -38,6 +39,7 @@ defmodule Otturnaut.Command.Runner do
     subscriber = Keyword.get(opts, :subscriber, self())
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     working_dir = Keyword.get(opts, :working_dir)
+    env = Keyword.get(opts, :env, [])
 
     start_time = System.monotonic_time(:millisecond)
 
@@ -48,7 +50,7 @@ defmodule Otturnaut.Command.Runner do
         result
 
       executable ->
-        run_with_port(executable, args, subscriber, timeout, working_dir, start_time)
+        run_with_port(executable, args, subscriber, timeout, working_dir, env, start_time)
     end
   end
 
@@ -56,8 +58,8 @@ defmodule Otturnaut.Command.Runner do
     System.find_executable(command)
   end
 
-  defp run_with_port(executable, args, subscriber, timeout, working_dir, start_time) do
-    port_opts = build_port_opts(working_dir)
+  defp run_with_port(executable, args, subscriber, timeout, working_dir, env, start_time) do
+    port_opts = build_port_opts(working_dir, env)
 
     port = Port.open({:spawn_executable, executable}, [{:args, args} | port_opts])
     timer_ref = schedule_timeout(timeout)
@@ -72,7 +74,7 @@ defmodule Otturnaut.Command.Runner do
     end
   end
 
-  defp build_port_opts(working_dir) do
+  defp build_port_opts(working_dir, env) do
     base_opts = [
       :binary,
       :exit_status,
@@ -80,11 +82,19 @@ defmodule Otturnaut.Command.Runner do
       {:line, @line_buffer_size}
     ]
 
-    if working_dir do
-      [{:cd, working_dir} | base_opts]
-    else
-      base_opts
-    end
+    base_opts
+    |> maybe_add_working_dir(working_dir)
+    |> maybe_add_env(env)
+  end
+
+  defp maybe_add_working_dir(opts, nil), do: opts
+  defp maybe_add_working_dir(opts, dir), do: [{:cd, dir} | opts]
+
+  defp maybe_add_env(opts, []), do: opts
+
+  defp maybe_add_env(opts, env) do
+    env_charlist = Enum.map(env, fn {k, v} -> {to_charlist(k), to_charlist(v)} end)
+    [{:env, env_charlist} | opts]
   end
 
   defp schedule_timeout(:infinity), do: nil

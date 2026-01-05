@@ -31,7 +31,7 @@ defmodule Otturnaut.Caddy.RouteTest do
       assert config["handle"] == [
         %{
           "handler" => "reverse_proxy",
-          "upstreams" => [%{"dial" => "localhost:3000"}]
+          "upstreams" => [%{"dial" => "127.0.0.1:3000"}]
         }
       ]
     end
@@ -45,7 +45,7 @@ defmodule Otturnaut.Caddy.RouteTest do
         "handle" => [
           %{
             "handler" => "reverse_proxy",
-            "upstreams" => [%{"dial" => "localhost:4000"}]
+            "upstreams" => [%{"dial" => "127.0.0.1:4000"}]
           }
         ]
       }
@@ -59,7 +59,7 @@ defmodule Otturnaut.Caddy.RouteTest do
     test "returns error for missing @id" do
       config = %{
         "match" => [%{"host" => ["myapp.com"]}],
-        "handle" => [%{"upstreams" => [%{"dial" => "localhost:3000"}]}]
+        "handle" => [%{"upstreams" => [%{"dial" => "127.0.0.1:3000"}]}]
       }
 
       assert {:error, "missing or invalid @id"} = Route.from_caddy_config(config)
@@ -68,7 +68,7 @@ defmodule Otturnaut.Caddy.RouteTest do
     test "returns error for missing host" do
       config = %{
         "@id" => "myapp",
-        "handle" => [%{"upstreams" => [%{"dial" => "localhost:3000"}]}]
+        "handle" => [%{"upstreams" => [%{"dial" => "127.0.0.1:3000"}]}]
       }
 
       assert {:error, "missing or invalid match.host"} = Route.from_caddy_config(config)

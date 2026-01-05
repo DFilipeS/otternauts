@@ -145,6 +145,19 @@ defmodule Otturnaut.Runtime.DockerTest do
     end
   end
 
+  defmodule BuildArgsMock do
+    def run(cmd, args), do: run(cmd, args, [])
+
+    def run("docker", ["build", "-t", _tag, "-f", _dockerfile, "--build-arg", arg1, "--build-arg", arg2 | _rest], _opts) do
+      # Verify build args are passed
+      if String.contains?(arg1, "MIX_ENV=") and String.contains?(arg2, "NODE_ENV=") do
+        Otturnaut.Command.Result.success("Built with args\n", 1000)
+      else
+        Otturnaut.Command.Result.failure(1, "Missing build args", 1000)
+      end
+    end
+  end
+
   defmodule MockEmptyList do
     alias Otturnaut.Command.Result
 
@@ -417,6 +430,16 @@ defmodule Otturnaut.Runtime.DockerTest do
         Docker.build_image("/app", "myapp:latest",
           command_module: TimeoutBuildMock,
           timeout: 30_000
+        )
+
+      assert tag == "myapp:latest"
+    end
+
+    test "passes build_args option to sync build" do
+      {:ok, tag} =
+        Docker.build_image("/app", "myapp:latest",
+          command_module: BuildArgsMock,
+          build_args: %{"MIX_ENV" => "prod", "NODE_ENV" => "production"}
         )
 
       assert tag == "myapp:latest"

@@ -186,10 +186,14 @@ defmodule Otturnaut.Runtime.Docker do
   def build_image(context_path, tag, opts \\ []) do
     cmd = command_module(opts)
     dockerfile = Keyword.get(opts, :dockerfile, "Dockerfile")
+    build_args = Keyword.get(opts, :build_args, %{})
     subscriber = Keyword.get(opts, :subscriber)
     timeout = Keyword.get(opts, :timeout, :timer.minutes(10))
 
-    args = ["build", "-t", tag, "-f", dockerfile, context_path]
+    args =
+      ["build", "-t", tag, "-f", dockerfile] ++
+        build_build_args(build_args) ++
+        [context_path]
 
     if subscriber do
       # Async build with streaming
@@ -209,6 +213,12 @@ defmodule Otturnaut.Runtime.Docker do
   defp build_env_args(env) when is_map(env) do
     Enum.flat_map(env, fn {key, value} ->
       ["-e", "#{key}=#{value}"]
+    end)
+  end
+
+  defp build_build_args(build_args) when is_map(build_args) do
+    Enum.flat_map(build_args, fn {key, value} ->
+      ["--build-arg", "#{key}=#{value}"]
     end)
   end
 

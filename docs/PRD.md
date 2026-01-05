@@ -216,6 +216,10 @@ When an application is deployed, the Otturnaut:
 2. Calls Caddy's admin API to register the domain → port mapping
 3. Caddy automatically obtains/renews SSL certificates
 
+**Implementation note:**
+
+Caddy routes use `127.0.0.1` explicitly instead of `localhost` for upstream connections. This avoids IPv4/IPv6 resolution issues—`localhost` may resolve to `::1` (IPv6) on some systems, while containers typically bind to IPv4 only.
+
 **User responsibility:**
 
 DNS configuration is handled by the user. They must point their domain to the outpost's IP address. The UI should provide clear guidance:

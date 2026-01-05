@@ -51,8 +51,10 @@ defmodule Otturnaut.Caddy.Route do
       "handle" => [
         %{
           "handler" => "reverse_proxy",
+          # Use 127.0.0.1 explicitly, not "localhost", because localhost may
+          # resolve to IPv6 (::1) while containers typically bind to IPv4 only
           "upstreams" => [
-            %{"dial" => "localhost:#{route.upstream_port}"}
+            %{"dial" => "127.0.0.1:#{route.upstream_port}"}
           ]
         }
       ]

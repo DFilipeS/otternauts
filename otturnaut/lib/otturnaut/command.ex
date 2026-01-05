@@ -47,6 +47,7 @@ defmodule Otturnaut.Command do
           {:timeout, timeout()}
           | {:subscriber, pid()}
           | {:working_dir, String.t()}
+          | {:env, [{String.t(), String.t()}]}
 
   @doc """
   Runs a command asynchronously under the command supervisor.

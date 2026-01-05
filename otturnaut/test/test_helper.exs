@@ -3,6 +3,10 @@
 
 # Set up Mimic for mocking
 Mimic.copy(Otturnaut.Command.PortWrapper)
+Mimic.copy(Otturnaut.Command)
+Mimic.copy(Otturnaut.Source.Git)
+Mimic.copy(Otturnaut.Runtime.Docker)
+Mimic.copy(File)
 Mimic.copy(Req)
 
 ExUnit.start()

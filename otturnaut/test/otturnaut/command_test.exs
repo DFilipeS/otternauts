@@ -51,6 +51,13 @@ defmodule Otturnaut.CommandTest do
       assert String.trim(result.output) == "/tmp"
     end
 
+    test "respects env option" do
+      result = Command.run("sh", ["-c", "echo $MY_TEST_VAR"], env: [{"MY_TEST_VAR", "hello_from_env"}])
+
+      assert result.status == :ok
+      assert String.trim(result.output) == "hello_from_env"
+    end
+
     test "respects timeout option" do
       result = Command.run("sleep", ["10"], timeout: 100)
 
