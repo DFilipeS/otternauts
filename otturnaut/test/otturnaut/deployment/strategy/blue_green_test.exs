@@ -172,7 +172,6 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
     end)
 
     context = %{
-      runtime: MockRuntime,
       port_manager: MockPortManager,
       app_state: MockAppState,
       caddy: MockCaddy
@@ -195,7 +194,8 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
           app_id: "myapp",
           image: "myapp:latest",
           container_port: 3000,
-          domains: ["myapp.com"]
+          domains: ["myapp.com"],
+          runtime: MockRuntime
         })
 
       assert {:ok, completed} = BlueGreen.execute(deployment, context, [])
@@ -222,7 +222,8 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
           app_id: "myapp",
           image: "myapp:latest",
           container_port: 3000,
-          domains: []
+          domains: [],
+          runtime: MockRuntime
         })
 
       assert {:ok, completed} = BlueGreen.execute(deployment, context, [])
@@ -252,7 +253,8 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
           app_id: "myapp",
           image: "myapp:v2",
           container_port: 3000,
-          domains: ["myapp.com"]
+          domains: ["myapp.com"],
+          runtime: MockRuntime
         })
 
       assert {:ok, completed} = BlueGreen.execute(deployment, context, [])
@@ -273,7 +275,8 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
           app_id: "myapp",
           image: "myapp:latest",
           container_port: 3000,
-          domains: ["myapp.com"]
+          domains: ["myapp.com"],
+          runtime: MockRuntime
         })
 
       {:ok, _} = BlueGreen.execute(deployment, context, subscriber: self())
@@ -293,7 +296,8 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
           app_id: "myapp",
           image: "myapp:latest",
           container_port: 3000,
-          domains: []
+          domains: [],
+          runtime: MockRuntime
         })
 
       assert {:error, {:port_allocation_failed, :exhausted}, failed} =
@@ -303,15 +307,14 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
     end
 
     test "fails when container start fails", %{context: context} do
-      context = %{context | runtime: FailingRuntime}
-
       deployment =
         Deployment.new(%{
           id: "deploy-1",
           app_id: "myapp",
           image: "myapp:latest",
           container_port: 3000,
-          domains: []
+          domains: [],
+          runtime: FailingRuntime
         })
 
       assert {:error, {:container_start_failed, _}, failed} =
@@ -321,15 +324,14 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
     end
 
     test "fails when health check fails", %{context: context} do
-      context = %{context | runtime: UnhealthyRuntime}
-
       deployment =
         Deployment.new(%{
           id: "deploy-1",
           app_id: "myapp",
           image: "myapp:latest",
           container_port: 3000,
-          domains: []
+          domains: [],
+          runtime: UnhealthyRuntime
         })
 
       # Use very short retry settings
@@ -350,7 +352,8 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
           app_id: "myapp",
           image: "myapp:latest",
           container_port: 3000,
-          domains: ["myapp.com"]
+          domains: ["myapp.com"],
+          runtime: MockRuntime
         })
 
       assert {:error, {:route_switch_failed, :caddy_unavailable}, failed} =
@@ -372,7 +375,9 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
         container_name: "otturnaut-myapp-deploy-1",
         container_id: "container-123",
         status: :failed,
-        error: :health_check_failed
+        error: :health_check_failed,
+        runtime: MockRuntime,
+        runtime_opts: []
       }
 
       # Mark container as running
@@ -399,7 +404,9 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
         previous_container_name: "otturnaut-myapp-old",
         previous_port: 9999,
         status: :failed,
-        error: :some_error
+        error: :some_error,
+        runtime: MockRuntime,
+        runtime_opts: []
       }
 
       assert :ok = BlueGreen.rollback(deployment, context, [])
@@ -421,7 +428,9 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
         container_name: nil,
         container_id: nil,
         status: :failed,
-        error: :some_error
+        error: :some_error,
+        runtime: MockRuntime,
+        runtime_opts: []
       }
 
       assert :ok = BlueGreen.rollback(deployment, context, [])
@@ -439,7 +448,9 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
         container_name: nil,
         container_id: nil,
         status: :failed,
-        error: :some_error
+        error: :some_error,
+        runtime: MockRuntime,
+        runtime_opts: []
       }
 
       assert :ok = BlueGreen.rollback(deployment, context, [])
@@ -458,7 +469,9 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
         previous_container_name: "otturnaut-myapp-old",
         previous_port: 9999,
         status: :in_progress,
-        error: nil
+        error: nil,
+        runtime: MockRuntime,
+        runtime_opts: []
       }
 
       set_container_status("otturnaut-myapp-deploy-1", :running)
@@ -479,7 +492,8 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
           app_id: "defaultapp",
           image: "app:latest",
           container_port: 3000,
-          domains: []
+          domains: [],
+          runtime: MockRuntime
         })
 
       # Call execute/2 without opts to exercise default argument path
@@ -498,7 +512,9 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
         container_name: nil,
         container_id: nil,
         status: :failed,
-        error: :some_error
+        error: :some_error,
+        runtime: MockRuntime,
+        runtime_opts: []
       }
 
       # Call rollback/2 without opts to exercise default argument path
@@ -556,8 +572,6 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
 
     test "passes runtime_opts to runtime.start" do
       context = %{
-        runtime: OptsCapturingRuntime,
-        runtime_opts: [binary: "podman"],
         port_manager: MockPortManager,
         app_state: MockAppState,
         caddy: MockCaddy
@@ -569,7 +583,9 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
           app_id: "myapp",
           image: "myapp:latest",
           container_port: 3000,
-          domains: []
+          domains: [],
+          runtime: OptsCapturingRuntime,
+          runtime_opts: [binary: "podman"]
         })
 
       {:ok, _completed} = BlueGreen.execute(deployment, context, [])
@@ -589,8 +605,6 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
 
     test "passes runtime_opts to health check (runtime.status)" do
       context = %{
-        runtime: OptsCapturingRuntime,
-        runtime_opts: [binary: "podman"],
         port_manager: MockPortManager,
         app_state: MockAppState,
         caddy: MockCaddy
@@ -602,7 +616,9 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
           app_id: "myapp",
           image: "myapp:latest",
           container_port: 3000,
-          domains: []
+          domains: [],
+          runtime: OptsCapturingRuntime,
+          runtime_opts: [binary: "podman"]
         })
 
       {:ok, _completed} = BlueGreen.execute(deployment, context, [])
@@ -631,8 +647,6 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
       })
 
       context = %{
-        runtime: OptsCapturingRuntime,
-        runtime_opts: [binary: "podman"],
         port_manager: MockPortManager,
         app_state: MockAppState,
         caddy: MockCaddy
@@ -644,7 +658,9 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
           app_id: "myapp",
           image: "myapp:v2",
           container_port: 3000,
-          domains: []
+          domains: [],
+          runtime: OptsCapturingRuntime,
+          runtime_opts: [binary: "podman"]
         })
 
       {:ok, _completed} = BlueGreen.execute(deployment, context, [])

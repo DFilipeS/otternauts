@@ -231,11 +231,9 @@ defmodule Otturnaut.DeploymentTest do
           container_port: 3000
         })
 
-      context = %{runtime: FakeRuntime}
+      assert :ok = Deployment.rollback(deployment, RollbackStrategy)
 
-      assert :ok = Deployment.rollback(deployment, RollbackStrategy, context)
-
-      assert_receive {:rollback_called, ^deployment, ^context, []}
+      assert_receive {:rollback_called, ^deployment, %Deployment.Context{}, []}
     end
 
     test "passes opts to strategy.rollback" do
@@ -385,13 +383,20 @@ defmodule Otturnaut.DeploymentTest do
       })
 
       context = %{
-        runtime: TestMockRuntime,
         app_state: TestMockAppState,
         port_manager: TestMockPortManager,
         caddy: TestMockCaddy
       }
 
-      {:ok, context: context}
+      deployment =
+        Deployment.new(%{
+          app_id: "myapp",
+          image: "myapp:latest",
+          container_port: 3000,
+          runtime: TestMockRuntime
+        })
+
+      {:ok, context: context, deployment: deployment}
     end
 
     # Helper functions
@@ -422,7 +427,10 @@ defmodule Otturnaut.DeploymentTest do
       Map.get(state, :removed_routes, [])
     end
 
-    test "successfully undeploys app with all resources present", %{context: context} do
+    test "successfully undeploys app with all resources present", %{
+           context: context,
+           deployment: deployment
+         } do
       app = %{
         deployment_id: "deploy123",
         container_name: "otturnaut-myapp-deploy123",
@@ -434,7 +442,7 @@ defmodule Otturnaut.DeploymentTest do
       TestMockAppState.put("myapp", app)
       add_container("otturnaut-myapp-deploy123")
 
-      assert :ok = Deployment.undeploy("myapp", context)
+      assert :ok = Deployment.undeploy(deployment, context)
 
       assert {:error, :not_found} = TestMockAppState.get("myapp")
       assert {:ok, :not_found} = TestMockRuntime.status("otturnaut-myapp-deploy123")
@@ -442,14 +450,17 @@ defmodule Otturnaut.DeploymentTest do
       assert ["myapp-route"] = get_removed_routes()
     end
 
-    test "idempotent - returns ok when app not found", %{context: context} do
+    test "idempotent - returns ok when app not found", %{context: context, deployment: deployment} do
       assert {:error, :not_found} = TestMockAppState.get("myapp")
-      assert :ok = Deployment.undeploy("myapp", context)
+      assert :ok = Deployment.undeploy(deployment, context)
       assert [] = get_released_ports()
       assert [] = get_removed_routes()
     end
 
-    test "handles partial cleanup when container already removed", %{context: context} do
+    test "handles partial cleanup when container already removed", %{
+           context: context,
+           deployment: deployment
+         } do
       app = %{
         deployment_id: "deploy123",
         container_name: "otturnaut-myapp-deploy123",
@@ -460,13 +471,13 @@ defmodule Otturnaut.DeploymentTest do
 
       TestMockAppState.put("myapp", app)
 
-      assert :ok = Deployment.undeploy("myapp", context)
+      assert :ok = Deployment.undeploy(deployment, context)
       assert {:error, :not_found} = TestMockAppState.get("myapp")
       assert [10042] = get_released_ports()
       assert ["myapp-route"] = get_removed_routes()
     end
 
-    test "skips stop when container already stopped", %{context: context} do
+    test "skips stop when container already stopped", %{context: context, deployment: deployment} do
       app = %{
         deployment_id: "deploy123",
         container_name: "otturnaut-myapp-deploy123",
@@ -479,13 +490,16 @@ defmodule Otturnaut.DeploymentTest do
       add_container("otturnaut-myapp-deploy123")
       set_container_status("otturnaut-myapp-deploy123", :stopped)
 
-      assert :ok = Deployment.undeploy("myapp", context)
+      assert :ok = Deployment.undeploy(deployment, context)
       assert {:error, :not_found} = TestMockAppState.get("myapp")
       assert [10042] = get_released_ports()
       assert ["myapp-route"] = get_removed_routes()
     end
 
-    test "skips Caddy route removal when no domains configured", %{context: context} do
+    test "skips Caddy route removal when no domains configured", %{
+           context: context,
+           deployment: deployment
+         } do
       app = %{
         deployment_id: "deploy123",
         container_name: "otturnaut-myapp-deploy123",
@@ -497,13 +511,16 @@ defmodule Otturnaut.DeploymentTest do
       TestMockAppState.put("myapp", app)
       add_container("otturnaut-myapp-deploy123")
 
-      assert :ok = Deployment.undeploy("myapp", context)
+      assert :ok = Deployment.undeploy(deployment, context)
       assert {:error, :not_found} = TestMockAppState.get("myapp")
       assert [10042] = get_released_ports()
       assert [] = get_removed_routes()
     end
 
-    test "sends progress notifications when subscriber provided", %{context: context} do
+    test "sends progress notifications when subscriber provided", %{
+           context: context,
+           deployment: deployment
+         } do
       app = %{
         deployment_id: "deploy123",
         container_name: "otturnaut-myapp-deploy123",
@@ -515,7 +532,7 @@ defmodule Otturnaut.DeploymentTest do
       TestMockAppState.put("myapp", app)
       add_container("otturnaut-myapp-deploy123")
 
-      assert :ok = Deployment.undeploy("myapp", context, subscriber: self())
+      assert :ok = Deployment.undeploy(deployment, context, subscriber: self())
 
       assert_receive {:undeploy_progress, %{step: :retrieve_state, message: _}}
       assert_receive {:undeploy_progress, %{step: :stop_container, message: _}}
@@ -525,7 +542,7 @@ defmodule Otturnaut.DeploymentTest do
       assert_receive {:undeploy_progress, %{step: :clear_state, message: _}}
     end
 
-    test "passes opts correctly to Caddy", %{context: context} do
+    test "passes opts correctly to Caddy", %{context: context, deployment: deployment} do
       custom_context = %{context | caddy: UndeployOptsTrackingCaddy}
 
       app = %{
@@ -540,12 +557,12 @@ defmodule Otturnaut.DeploymentTest do
       add_container("otturnaut-myapp-deploy123")
 
       custom_opts = [subscriber: self(), custom: :value]
-      assert :ok = Deployment.undeploy("myapp", custom_context, custom_opts)
+      assert :ok = Deployment.undeploy(deployment, custom_context, custom_opts)
       assert Process.get(:tracked_opts) == custom_opts
     end
 
-    test "continues cleanup when stop fails", %{context: context} do
-      custom_context = %{context | runtime: UndeployFailingStopRuntime}
+    test "continues cleanup when stop fails", %{context: context, deployment: deployment} do
+      custom_deployment = %{deployment | runtime: UndeployFailingStopRuntime}
 
       app = %{
         deployment_id: "deploy123",
@@ -557,13 +574,13 @@ defmodule Otturnaut.DeploymentTest do
 
       TestMockAppState.put("myapp", app)
 
-      assert :ok = Deployment.undeploy("myapp", custom_context)
+      assert :ok = Deployment.undeploy(custom_deployment, context)
       assert {:error, :not_found} = TestMockAppState.get("myapp")
       assert [10042] = get_released_ports()
     end
 
-    test "continues cleanup when status check fails", %{context: context} do
-      custom_context = %{context | runtime: UndeployFailingStatusRuntime}
+    test "continues cleanup when status check fails", %{context: context, deployment: deployment} do
+      custom_deployment = %{deployment | runtime: UndeployFailingStatusRuntime}
 
       app = %{
         deployment_id: "deploy123",
@@ -575,13 +592,13 @@ defmodule Otturnaut.DeploymentTest do
 
       TestMockAppState.put("myapp", app)
 
-      assert :ok = Deployment.undeploy("myapp", custom_context)
+      assert :ok = Deployment.undeploy(custom_deployment, context)
       assert {:error, :not_found} = TestMockAppState.get("myapp")
       assert [10042] = get_released_ports()
     end
 
-    test "continues cleanup when remove fails", %{context: context} do
-      custom_context = %{context | runtime: UndeployFailingRemoveRuntime}
+    test "continues cleanup when remove fails", %{context: context, deployment: deployment} do
+      custom_deployment = %{deployment | runtime: UndeployFailingRemoveRuntime}
 
       app = %{
         deployment_id: "deploy123",
@@ -593,12 +610,15 @@ defmodule Otturnaut.DeploymentTest do
 
       TestMockAppState.put("myapp", app)
 
-      assert :ok = Deployment.undeploy("myapp", custom_context)
+      assert :ok = Deployment.undeploy(custom_deployment, context)
       assert {:error, :not_found} = TestMockAppState.get("myapp")
       assert [10042] = get_released_ports()
     end
 
-    test "continues cleanup when Caddy route removal fails", %{context: context} do
+    test "continues cleanup when Caddy route removal fails", %{
+           context: context,
+           deployment: deployment
+         } do
       custom_context = %{context | caddy: UndeployFailingCaddy}
 
       app = %{
@@ -612,7 +632,7 @@ defmodule Otturnaut.DeploymentTest do
       TestMockAppState.put("myapp", app)
       add_container("otturnaut-myapp-deploy123")
 
-      assert :ok = Deployment.undeploy("myapp", custom_context)
+      assert :ok = Deployment.undeploy(deployment, custom_context)
       assert {:error, :not_found} = TestMockAppState.get("myapp")
       assert [10042] = get_released_ports()
     end

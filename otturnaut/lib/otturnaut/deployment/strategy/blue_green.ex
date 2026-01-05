@@ -16,23 +16,14 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreen do
 
   ## Context
 
-  The context map should contain:
+  The context struct (see `Otturnaut.Deployment.Context`) contains infrastructure
+  modules that can be overridden for testing:
 
-  - `:runtime` — Module implementing the runtime behaviour (e.g., `Otturnaut.Runtime.Docker`)
-  - `:runtime_opts` — (optional) Options passed to runtime calls (e.g., `[binary: "podman"]`)
   - `:port_manager` — Module or server for port allocation
   - `:app_state` — Module or server for app state
   - `:caddy` — Module for Caddy route management
 
-  ## Example
-
-      context = %{
-        runtime: Otturnaut.Runtime.Docker,
-        runtime_opts: [binary: "podman"],
-        port_manager: Otturnaut.PortManager,
-        app_state: Otturnaut.AppState,
-        caddy: Otturnaut.Caddy
-      }
+  Runtime configuration (`:runtime`, `:runtime_opts`) is on the deployment struct.
 
   ## Failure Handling
 
@@ -52,14 +43,8 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreen do
 
   @impl true
   def execute(deployment, context, opts \\ []) do
-    %{
-      runtime: runtime,
-      port_manager: port_manager,
-      app_state: app_state,
-      caddy: caddy
-    } = context
-
-    runtime_opts = Map.get(context, :runtime_opts, [])
+    %{port_manager: port_manager, app_state: app_state, caddy: caddy} = context
+    %{runtime: runtime, runtime_opts: runtime_opts} = deployment
 
     # Get current state if app exists
     deployment = load_previous_state(deployment, app_state)
@@ -80,26 +65,18 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreen do
 
   @impl true
   def rollback(deployment, context, opts \\ []) do
-    %{
-      runtime: runtime,
-      port_manager: port_manager,
-      caddy: caddy
-    } = context
+    %{port_manager: port_manager, caddy: caddy} = context
+    %{runtime: runtime, runtime_opts: runtime_opts} = deployment
 
-    runtime_opts = Map.get(context, :runtime_opts, [])
-
-    # Stop new container if started
     if deployment.container_name do
       runtime.stop(deployment.container_name, runtime_opts)
       runtime.remove(deployment.container_name, runtime_opts)
     end
 
-    # Release allocated port
     if deployment.port do
       port_manager.release(deployment.port)
     end
 
-    # Restore old route if we switched
     if deployment.previous_port && deployment.status == :failed do
       route = %Route{
         id: "#{deployment.app_id}-route",

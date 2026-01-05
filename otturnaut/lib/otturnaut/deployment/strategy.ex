@@ -14,28 +14,16 @@ defmodule Otturnaut.Deployment.Strategy do
 
   ## Context
 
-  The strategy receives a context map containing the runtime dependencies:
+  The strategy receives a context struct with infrastructure modules. Runtime
+  configuration (module and options) is on the deployment struct itself.
 
-  ```elixir
-  %{
-    runtime: Otturnaut.Runtime.Docker,
-    port_manager: Otturnaut.PortManager,
-    app_state: Otturnaut.AppState,
-    caddy: Otturnaut.Caddy
-  }
-  ```
-
-  This allows strategies to be tested with mock implementations.
+  See `Otturnaut.Deployment.Context` for context details.
   """
 
   alias Otturnaut.Deployment
+  alias Otturnaut.Deployment.Context
 
-  @type context :: %{
-          runtime: module(),
-          port_manager: module(),
-          app_state: module(),
-          caddy: module()
-        }
+  @type context :: Context.t()
 
   @type step ::
           :allocate_port

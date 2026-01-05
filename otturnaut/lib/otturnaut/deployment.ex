@@ -8,10 +8,10 @@ defmodule Otturnaut.Deployment do
   ## Lifecycle
 
   1. Create deployment with `new/1`
-  2. Execute with a strategy via `execute/3`
+  2. Execute with a strategy via `execute/2`
   3. On success, deployment contains new container info
   4. On failure, rollback cleans up partial state
-  5. To remove a deployed app, use `undeploy/3`
+  5. To remove a deployed app, use `undeploy/1`
 
   ## Example
 
@@ -23,27 +23,42 @@ defmodule Otturnaut.Deployment do
         domains: ["myapp.com"]
       })
 
-      context = %{
-        runtime: Otturnaut.Runtime.Docker,
-        port_manager: Otturnaut.PortManager,
-        app_state: Otturnaut.AppState,
-        caddy: Otturnaut.Caddy
-      }
-
-      case Deployment.execute(deployment, Strategy.BlueGreen, context) do
+      case Deployment.execute(deployment, Strategy.BlueGreen) do
         {:ok, completed} ->
           IO.puts("Deployed to port \#{completed.port}")
 
         {:error, reason, partial} ->
           IO.puts("Failed: \#{inspect(reason)}")
-          Deployment.rollback(partial, Strategy.BlueGreen, context)
+          Deployment.rollback(partial, Strategy.BlueGreen)
       end
 
       # Later, to remove the application
-      Deployment.undeploy("myapp", context)
+      Deployment.undeploy(deployment)
+
+  ## Runtime Configuration
+
+  By default, deployments use `Otturnaut.Runtime.Docker`. To use a different
+  runtime (e.g., Podman), configure it when creating the deployment:
+
+      deployment = Deployment.new(%{
+        app_id: "myapp",
+        image: "myapp:latest",
+        container_port: 3000,
+        runtime: Otturnaut.Runtime.Docker,
+        runtime_opts: [binary: "podman"]
+      })
+
+  ## Context Overrides
+
+  Infrastructure modules (port manager, app state, Caddy) use production
+  defaults. In tests, override specific modules:
+
+      Deployment.execute(deployment, Strategy.BlueGreen, %{port_manager: MockPortManager})
 
   """
   require Logger
+
+  alias Otturnaut.Deployment.Context
 
   @type status :: :pending | :in_progress | :completed | :failed | :rolled_back
 
@@ -54,6 +69,9 @@ defmodule Otturnaut.Deployment do
           container_port: pos_integer(),
           env: map(),
           domains: [String.t()],
+          # Runtime configuration
+          runtime: module(),
+          runtime_opts: keyword(),
           # Populated during execution
           port: pos_integer() | nil,
           container_name: String.t() | nil,
@@ -84,6 +102,8 @@ defmodule Otturnaut.Deployment do
     :completed_at,
     env: %{},
     domains: [],
+    runtime: Otturnaut.Runtime.Docker,
+    runtime_opts: [],
     status: :pending
   ]
 
@@ -98,6 +118,8 @@ defmodule Otturnaut.Deployment do
   Optional fields:
   - `:env` - Environment variables (default: `%{}`)
   - `:domains` - Domains to route to this app (default: `[]`)
+  - `:runtime` - Runtime module (default: `Otturnaut.Runtime.Docker`)
+  - `:runtime_opts` - Runtime options, e.g., `[binary: "podman"]` (default: `[]`)
   - `:id` - Deployment ID (auto-generated if not provided)
   """
   @spec new(map()) :: t()
@@ -117,10 +139,25 @@ defmodule Otturnaut.Deployment do
 
   Returns `{:ok, deployment}` on success or `{:error, reason, deployment}` on failure.
   The returned deployment contains the updated state regardless of outcome.
+
+  ## Options
+
+  - `context` - Map of context overrides (merged with defaults)
+  - `opts` - Strategy-specific options (e.g., `:subscriber` for progress updates)
+
+  ## Examples
+
+      # Use defaults
+      Deployment.execute(deployment, Strategy.BlueGreen)
+
+      # Override context modules for testing
+      Deployment.execute(deployment, Strategy.BlueGreen, %{port_manager: MockPortManager})
+
   """
-  @spec execute(t(), module(), map(), keyword()) ::
+  @spec execute(t(), module(), map() | keyword(), keyword()) ::
           {:ok, t()} | {:error, term(), t()}
-  def execute(deployment, strategy, context, opts \\ []) do
+  def execute(deployment, strategy, context \\ %{}, opts \\ []) do
+    context = Context.new(context)
     deployment = %{deployment | status: :in_progress, started_at: DateTime.utc_now()}
     strategy.execute(deployment, context, opts)
   end
@@ -129,9 +166,19 @@ defmodule Otturnaut.Deployment do
   Rolls back a deployment using the given strategy.
 
   Cleans up any resources created during a failed deployment.
+
+  ## Examples
+
+      # Use defaults
+      Deployment.rollback(deployment, Strategy.BlueGreen)
+
+      # Override context modules for testing
+      Deployment.rollback(deployment, Strategy.BlueGreen, %{port_manager: MockPortManager})
+
   """
-  @spec rollback(t(), module(), map(), keyword()) :: :ok | {:error, term()}
-  def rollback(deployment, strategy, context, opts \\ []) do
+  @spec rollback(t(), module(), map() | keyword(), keyword()) :: :ok | {:error, term()}
+  def rollback(deployment, strategy, context \\ %{}, opts \\ []) do
+    context = Context.new(context)
     strategy.rollback(deployment, context, opts)
   end
 
@@ -152,60 +199,49 @@ defmodule Otturnaut.Deployment do
 
   ## Options
 
-  - `:subscriber` - PID to receive progress updates
+  - `context` - Map of context overrides (merged with defaults)
+  - `opts` - Options like `:subscriber` for progress updates
 
   ## Examples
 
-      context = %{
-        runtime: Otturnaut.Runtime.Docker,
-        app_state: Otturnaut.AppState,
-        port_manager: Otturnaut.PortManager,
-        caddy: Otturnaut.Caddy
-      }
+      deployment = Deployment.new(%{
+        app_id: "myapp",
+        image: "myapp:latest",
+        container_port: 3000
+      })
 
       # Basic undeploy
-      :ok = Deployment.undeploy("myapp", context)
+      :ok = Deployment.undeploy(deployment)
 
       # With progress notifications
-      :ok = Deployment.undeploy("myapp", context, subscriber: self())
+      :ok = Deployment.undeploy(deployment, %{}, subscriber: self())
+
+      # Override context for testing
+      :ok = Deployment.undeploy(deployment, %{app_state: MockAppState})
 
       # Idempotent - safe to run again
-      :ok = Deployment.undeploy("myapp", context)
+      :ok = Deployment.undeploy(deployment)
 
   """
-  @spec undeploy(String.t(), map(), keyword()) :: :ok
-  def undeploy(app_id, context, opts \\ []) do
-    %{
-      runtime: runtime,
-      app_state: app_state,
-      port_manager: port_manager,
-      caddy: caddy
-    } = context
+  @spec undeploy(t(), map() | keyword(), keyword()) :: :ok
+  def undeploy(deployment, context \\ %{}, opts \\ [])
 
-    runtime_opts = Map.get(context, :runtime_opts, [])
+  def undeploy(%__MODULE__{} = deployment, context, opts) do
+    %{app_state: app_state, port_manager: port_manager, caddy: caddy} = Context.new(context)
 
-    # Step 1: Retrieve app state
+    %{app_id: app_id, runtime: runtime, runtime_opts: runtime_opts} = deployment
+
     notify_undeploy_progress(opts, :retrieve_state, "Retrieving application state")
 
     case app_state.get(app_id) do
       {:error, :not_found} ->
-        # Idempotent: nothing to clean up
         :ok
 
       {:ok, app} ->
-        # Step 2: Stop container if running
         stop_container_if_running(app.container_name, runtime, runtime_opts, opts)
-
-        # Step 3: Remove container
         remove_container(app.container_name, runtime, runtime_opts, opts)
-
-        # Step 4: Remove Caddy routes (if domains configured)
         remove_routes_if_configured(app_id, app.domains, caddy, opts)
-
-        # Step 5: Release port
         release_port(app.port, port_manager, opts)
-
-        # Step 6: Clear app state
         clear_app_state(app_id, app_state, opts)
 
         :ok
