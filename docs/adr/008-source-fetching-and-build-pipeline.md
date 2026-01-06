@@ -94,12 +94,28 @@ Source.Git.clone("git@github.com:user/private-app.git",
 | Cleanup | Delete keys in `try/after` block, even on build failure |
 | Process environment | Use `GIT_SSH_COMMAND` env var, avoid shell interpolation |
 
+**SSH command options:**
+
+The `GIT_SSH_COMMAND` includes several options to ensure reliable, non-interactive operation:
+
+```
+ssh -i /path/to/key -o IdentityAgent=none -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes
+```
+
+| Option | Purpose |
+|--------|---------|
+| `-i /path/to/key` | Use the specified private key |
+| `IdentityAgent=none` | Disable SSH agent entirely (bypasses 1Password, GNOME Keyring, etc. even if configured in `~/.ssh/config`) |
+| `IdentitiesOnly=yes` | Only use the specified key, ignore any others |
+| `StrictHostKeyChecking=accept-new` | Auto-accept new host keys, reject changed keys |
+| `BatchMode=yes` | Fail immediately instead of prompting for passwords |
+
 **Key lifecycle:**
 
 ```
 1. Mission Control sends key to Otturnaut (future: secure channel)
 2. Otturnaut writes key to ~/.otturnaut/keys/{key_id} with 0600
-3. Clone uses key via GIT_SSH_COMMAND="ssh -i /path/to/key -o StrictHostKeyChecking=accept-new"
+3. Clone uses key via GIT_SSH_COMMAND with agent disabled
 4. Key deleted immediately after clone (success or failure)
 ```
 
