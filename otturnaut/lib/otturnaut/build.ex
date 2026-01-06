@@ -14,9 +14,9 @@ defmodule Otturnaut.Build do
         build_args: %{"MIX_ENV" => "prod"}
       }
 
-      case Build.run("myapp", "abc123", config) do
-        {:ok, "otturnaut-myapp:abc123"} ->
-          # Image is ready for deployment
+      case Build.run("myapp", config) do
+        {:ok, "otturnaut-myapp:abc123def456789"} ->
+          # Image is ready for deployment (tagged with commit hash)
 
         {:error, {:clone_failed, reason}} ->
           # Git clone failed
@@ -65,7 +65,7 @@ defmodule Otturnaut.Build do
   ## Steps
 
   1. Clone repository to temp directory
-  2. Build image with tag `otturnaut-{app_id}:{deploy_id}`
+  2. Build image with tag `otturnaut-{app_id}:{commit_hash}`
   3. Clean up temp directory (always, even on failure)
   4. Return `{:ok, image_tag}` or `{:error, reason}`
 
@@ -78,16 +78,14 @@ defmodule Otturnaut.Build do
   - `:command_module` - Module for running commands (for testing)
 
   """
-  @spec run(String.t(), String.t(), build_config(), run_opts()) ::
+  @spec run(String.t(), build_config(), run_opts()) ::
           {:ok, String.t()} | {:error, term()}
-  def run(app_id, deploy_id, config, opts \\ []) do
+  def run(app_id, config, opts \\ []) do
     subscriber = Keyword.get(opts, :subscriber)
     runtime = Keyword.get(opts, :runtime, Otturnaut.Runtime.Docker)
     runtime_opts = Keyword.get(opts, :runtime_opts, [])
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     command_module = Keyword.get(opts, :command_module)
-
-    image_tag = image_tag(app_id, deploy_id)
 
     clone_opts =
       [
@@ -99,7 +97,8 @@ defmodule Otturnaut.Build do
     notify(subscriber, :cloning, "Cloning repository...")
 
     case Git.clone(config.repo_url, clone_opts) do
-      {:ok, source_dir} ->
+      {:ok, source_dir, commit_hash} ->
+        image_tag = image_tag(app_id, commit_hash)
         build_and_cleanup(source_dir, image_tag, config, runtime, runtime_opts, timeout, subscriber)
 
       {:error, reason} ->
@@ -110,11 +109,11 @@ defmodule Otturnaut.Build do
   @doc """
   Generates the image tag for a deployment.
 
-  Format: `otturnaut-{app_id}:{deploy_id}`
+  Format: `otturnaut-{app_id}:{commit_hash}`
   """
   @spec image_tag(String.t(), String.t()) :: String.t()
-  def image_tag(app_id, deploy_id) do
-    "otturnaut-#{app_id}:#{deploy_id}"
+  def image_tag(app_id, commit_hash) do
+    "otturnaut-#{app_id}:#{commit_hash}"
   end
 
   # Private functions

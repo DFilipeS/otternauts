@@ -22,7 +22,21 @@ defmodule Otturnaut.BuildTest do
   end
 
   defmodule MockCommand do
-    def run("git", args, opts \\ []) do
+    def run(command, args, opts \\ [])
+
+    def run("git", ["rev-parse", "HEAD"], opts) do
+      send(self(), {:git_rev_parse_called, opts})
+
+      case Process.get(:mock_rev_parse_result, :success) do
+        :success ->
+          Result.success("abc123def456789\n", 100)
+
+        :failure ->
+          Result.failure(128, "fatal: not a git repository", 100)
+      end
+    end
+
+    def run("git", args, opts) do
       send(self(), {:git_called, args, opts})
 
       case Process.get(:mock_git_result, :success) do
@@ -48,24 +62,24 @@ defmodule Otturnaut.BuildTest do
   end
 
   describe "run/4" do
-    test "clones and builds successfully" do
+    test "clones and builds successfully with commit hash as tag" do
       config = %{
         repo_url: "https://github.com/user/app.git",
         ref: "main"
       }
 
       {:ok, image_tag} =
-        Build.run("myapp", "abc123", config,
+        Build.run("myapp", config,
           runtime: MockRuntime,
           command_module: MockCommand
         )
 
-      assert image_tag == "otturnaut-myapp:abc123"
+      assert image_tag == "otturnaut-myapp:abc123def456789"
 
       assert_received {:git_called, args, _opts}
       assert "https://github.com/user/app.git" in args
 
-      assert_received {:build_image_called, context_path, "otturnaut-myapp:abc123", opts}
+      assert_received {:build_image_called, context_path, "otturnaut-myapp:abc123def456789", opts}
       assert String.contains?(context_path, "otturnaut-source-")
       assert Keyword.get(opts, :dockerfile) |> String.ends_with?("Dockerfile")
     end
@@ -78,7 +92,7 @@ defmodule Otturnaut.BuildTest do
       }
 
       {:ok, _image_tag} =
-        Build.run("myapp", "abc123", config,
+        Build.run("myapp", config,
           runtime: MockRuntime,
           command_module: MockCommand
         )
@@ -96,7 +110,7 @@ defmodule Otturnaut.BuildTest do
       }
 
       {:ok, _image_tag} =
-        Build.run("myapp", "abc123", config,
+        Build.run("myapp", config,
           runtime: MockRuntime,
           command_module: MockCommand
         )
@@ -114,7 +128,7 @@ defmodule Otturnaut.BuildTest do
       }
 
       {:ok, _image_tag} =
-        Build.run("myapp", "abc123", config,
+        Build.run("myapp", config,
           runtime: MockRuntime,
           command_module: MockCommand
         )
@@ -132,7 +146,7 @@ defmodule Otturnaut.BuildTest do
       }
 
       {:ok, _image_tag} =
-        Build.run("myapp", "abc123", config,
+        Build.run("myapp", config,
           runtime: MockRuntime,
           command_module: MockCommand,
           timeout: :timer.minutes(20)
@@ -149,7 +163,7 @@ defmodule Otturnaut.BuildTest do
       }
 
       {:ok, _image_tag} =
-        Build.run("myapp", "abc123", config,
+        Build.run("myapp", config,
           runtime: MockRuntime,
           command_module: MockCommand,
           subscriber: self()
@@ -158,7 +172,7 @@ defmodule Otturnaut.BuildTest do
       assert_received {:build_progress, :cloning, _}
       assert_received {:build_progress, :building, _}
       assert_received {:build_progress, :cleanup, _}
-      assert_received {:build_progress, :complete, "otturnaut-myapp:abc123"}
+      assert_received {:build_progress, :complete, "otturnaut-myapp:abc123def456789"}
     end
 
     test "returns error when clone fails" do
@@ -170,7 +184,7 @@ defmodule Otturnaut.BuildTest do
       }
 
       result =
-        Build.run("myapp", "abc123", config,
+        Build.run("myapp", config,
           runtime: MockRuntime,
           command_module: MockCommand
         )
@@ -189,7 +203,7 @@ defmodule Otturnaut.BuildTest do
       }
 
       result =
-        Build.run("myapp", "abc123", config,
+        Build.run("myapp", config,
           runtime: MockRuntime,
           command_module: MockCommand
         )
@@ -208,7 +222,7 @@ defmodule Otturnaut.BuildTest do
       }
 
       {:error, _} =
-        Build.run("myapp", "abc123", config,
+        Build.run("myapp", config,
           runtime: MockRuntime,
           command_module: MockCommand,
           subscriber: self()
@@ -228,21 +242,21 @@ defmodule Otturnaut.BuildTest do
       }
 
       {:ok, image_tag} =
-        Build.run("myapp", "abc123", config,
+        Build.run("myapp", config,
           runtime: MockRuntime,
           command_module: MockCommand
         )
 
-      assert image_tag == "otturnaut-myapp:abc123"
+      assert image_tag == "otturnaut-myapp:abc123def456789"
     after
       Process.delete(:mock_build_result)
     end
   end
 
   describe "image_tag/2" do
-    test "generates correct format" do
-      assert Build.image_tag("myapp", "abc123") == "otturnaut-myapp:abc123"
-      assert Build.image_tag("api", "deploy-456") == "otturnaut-api:deploy-456"
+    test "generates correct format with commit hash" do
+      assert Build.image_tag("myapp", "abc123def456789") == "otturnaut-myapp:abc123def456789"
+      assert Build.image_tag("api", "1a2b3c4d5e6f") == "otturnaut-api:1a2b3c4d5e6f"
     end
   end
 
@@ -252,7 +266,7 @@ defmodule Otturnaut.BuildTest do
       stub(Git, :clone, fn _repo_url, _opts ->
         temp_dir = Path.join(System.tmp_dir!(), "otturnaut-test-#{:rand.uniform(10000)}")
         File.mkdir_p!(temp_dir)
-        {:ok, temp_dir}
+        {:ok, temp_dir, "abc123def456789"}
       end)
 
       stub(Git, :cleanup, fn _path -> :ok end)
@@ -267,9 +281,9 @@ defmodule Otturnaut.BuildTest do
         ref: "main"
       }
 
-      {:ok, image_tag} = Build.run("myapp", "abc123", config)
+      {:ok, image_tag} = Build.run("myapp", config)
 
-      assert image_tag == "otturnaut-myapp:abc123"
+      assert image_tag == "otturnaut-myapp:abc123def456789"
     end
   end
 end

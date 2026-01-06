@@ -39,7 +39,8 @@ defmodule Otturnaut.Source.Git do
   @doc """
   Clones a repository to a temporary directory.
 
-  Returns `{:ok, path}` where path is the absolute path to the cloned repo.
+  Returns `{:ok, path, commit_hash}` where path is the absolute path to the cloned repo
+  and commit_hash is the full SHA of the checked-out commit.
 
   ## Options
 
@@ -49,7 +50,7 @@ defmodule Otturnaut.Source.Git do
   - `:command_module` - Module for running commands (default: `Otturnaut.Command`)
 
   """
-  @spec clone(String.t(), clone_opts()) :: {:ok, String.t()} | {:error, term()}
+  @spec clone(String.t(), clone_opts()) :: {:ok, String.t(), String.t()} | {:error, term()}
   def clone(repo_url, opts \\ []) do
     ref = Keyword.get(opts, :ref, @default_ref)
     depth = Keyword.get(opts, :depth, @default_depth)
@@ -57,8 +58,9 @@ defmodule Otturnaut.Source.Git do
     cmd = Keyword.get(opts, :command_module, Command)
 
     with {:ok, temp_dir} <- create_temp_dir(),
-         :ok <- do_clone(repo_url, temp_dir, ref, depth, ssh_key, cmd) do
-      {:ok, temp_dir}
+         :ok <- do_clone(repo_url, temp_dir, ref, depth, ssh_key, cmd),
+         {:ok, commit_hash} <- get_commit_hash(temp_dir, cmd) do
+      {:ok, temp_dir, commit_hash}
     end
   end
 
@@ -125,5 +127,18 @@ defmodule Otturnaut.Source.Git do
       "ssh -i #{ssh_key} -o IdentityAgent=none -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes"
 
     [{"GIT_SSH_COMMAND", ssh_command}]
+  end
+
+  defp get_commit_hash(repo_dir, cmd) do
+    result = cmd.run("git", ["rev-parse", "HEAD"], working_dir: repo_dir)
+
+    case result do
+      %Result{status: :ok, output: output} ->
+        commit_hash = String.trim(output)
+        {:ok, commit_hash}
+
+      %Result{status: :error, error: error} ->
+        {:error, {:get_commit_hash_failed, error}}
+    end
   end
 end

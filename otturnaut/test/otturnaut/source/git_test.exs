@@ -21,7 +21,21 @@ defmodule Otturnaut.Source.GitTest do
   end
 
   defmodule MockCommand do
-    def run("git", args, opts \\ []) do
+    def run(command, args, opts \\ [])
+
+    def run("git", ["rev-parse", "HEAD"], opts) do
+      send(self(), {:git_rev_parse_called, opts})
+
+      case Process.get(:mock_rev_parse_result, :success) do
+        :success ->
+          Result.success("abc123def456789\n", 100)
+
+        :failure ->
+          Result.failure(128, "fatal: not a git repository", 100)
+      end
+    end
+
+    def run("git", args, opts) do
       send(self(), {:git_called, args, opts})
 
       case Process.get(:mock_git_result, :success) do
@@ -35,10 +49,10 @@ defmodule Otturnaut.Source.GitTest do
   end
 
   describe "clone/2" do
-    test "clones a repository to a temp directory" do
+    test "clones a repository to a temp directory and returns commit hash" do
       repo_url = "https://github.com/user/app.git"
 
-      {:ok, path} = Git.clone(repo_url, command_module: MockCommand)
+      {:ok, path, commit_hash} = Git.clone(repo_url, command_module: MockCommand)
 
       assert_received {:git_called, args, _opts}
       assert "--branch" in args
@@ -50,6 +64,7 @@ defmodule Otturnaut.Source.GitTest do
 
       assert String.starts_with?(path, System.tmp_dir!())
       assert String.contains?(path, "otturnaut-source-")
+      assert commit_hash == "abc123def456789"
 
       Git.cleanup(path)
     end
@@ -57,7 +72,7 @@ defmodule Otturnaut.Source.GitTest do
     test "uses specified ref" do
       repo_url = "https://github.com/user/app.git"
 
-      {:ok, path} = Git.clone(repo_url, ref: "v1.0.0", command_module: MockCommand)
+      {:ok, path, _commit_hash} = Git.clone(repo_url, ref: "v1.0.0", command_module: MockCommand)
 
       assert_received {:git_called, args, _opts}
       assert "v1.0.0" in args
@@ -69,7 +84,7 @@ defmodule Otturnaut.Source.GitTest do
     test "uses specified depth" do
       repo_url = "https://github.com/user/app.git"
 
-      {:ok, path} = Git.clone(repo_url, depth: 5, command_module: MockCommand)
+      {:ok, path, _commit_hash} = Git.clone(repo_url, depth: 5, command_module: MockCommand)
 
       assert_received {:git_called, args, _opts}
       assert "5" in args
@@ -81,7 +96,7 @@ defmodule Otturnaut.Source.GitTest do
       repo_url = "git@github.com:user/private.git"
       ssh_key = "/path/to/deploy_key"
 
-      {:ok, path} = Git.clone(repo_url, ssh_key: ssh_key, command_module: MockCommand)
+      {:ok, path, _commit_hash} = Git.clone(repo_url, ssh_key: ssh_key, command_module: MockCommand)
 
       assert_received {:git_called, _args, opts}
       env = Keyword.get(opts, :env, [])
@@ -98,7 +113,7 @@ defmodule Otturnaut.Source.GitTest do
     test "does not set GIT_SSH_COMMAND when no ssh_key provided" do
       repo_url = "https://github.com/user/app.git"
 
-      {:ok, path} = Git.clone(repo_url, command_module: MockCommand)
+      {:ok, path, _commit_hash} = Git.clone(repo_url, command_module: MockCommand)
 
       assert_received {:git_called, _args, opts}
       env = Keyword.get(opts, :env, [])
@@ -121,7 +136,7 @@ defmodule Otturnaut.Source.GitTest do
     test "supports nil depth for full clone" do
       repo_url = "https://github.com/user/app.git"
 
-      {:ok, path} = Git.clone(repo_url, depth: nil, command_module: MockCommand)
+      {:ok, path, _commit_hash} = Git.clone(repo_url, depth: nil, command_module: MockCommand)
 
       assert_received {:git_called, args, _opts}
       refute "--depth" in args
@@ -133,13 +148,18 @@ defmodule Otturnaut.Source.GitTest do
   describe "clone/1 default argument path" do
     test "exercises default opts using Mimic" do
       # Mock Command.run to avoid network calls
-      stub(Command, :run, fn "git", _args, _opts ->
-        Result.success("", 100)
+      stub(Command, :run, fn
+        "git", ["rev-parse", "HEAD"], _opts ->
+          Result.success("abc123def456789\n", 100)
+
+        "git", _args, _opts ->
+          Result.success("", 100)
       end)
 
-      {:ok, path} = Git.clone("https://github.com/user/app.git")
+      {:ok, path, commit_hash} = Git.clone("https://github.com/user/app.git")
 
       assert String.starts_with?(path, System.tmp_dir!())
+      assert commit_hash == "abc123def456789"
       Git.cleanup(path)
     end
 
@@ -150,6 +170,18 @@ defmodule Otturnaut.Source.GitTest do
       result = Git.clone("https://github.com/user/app.git", command_module: MockCommand)
 
       assert {:error, {:mkdir_failed, :eacces}} = result
+    end
+
+    test "returns error when rev-parse fails" do
+      Process.put(:mock_rev_parse_result, :failure)
+
+      repo_url = "https://github.com/user/app.git"
+
+      result = Git.clone(repo_url, command_module: MockCommand)
+
+      assert {:error, {:get_commit_hash_failed, _reason}} = result
+    after
+      Process.delete(:mock_rev_parse_result)
     end
   end
 
