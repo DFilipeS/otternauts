@@ -36,6 +36,27 @@ defmodule Otturnaut.CaddyUnitTest do
       end
     end
 
+    def put_by_id(id, _config, opts) do
+      case get_mock_response({:put_by_id, id}, opts) do
+        nil -> :ok
+        response -> response
+      end
+    end
+
+    def append_config(path, _config, opts) do
+      case get_mock_response({:append_config, path}, opts) do
+        nil -> :ok
+        response -> response
+      end
+    end
+
+    def patch_config(path, _config, opts) do
+      case get_mock_response({:patch_config, path}, opts) do
+        nil -> :ok
+        response -> response
+      end
+    end
+
     def delete_by_id(id, opts) do
       case get_mock_response({:delete_by_id, id}, opts) do
         nil -> :ok
@@ -129,6 +150,69 @@ defmodule Otturnaut.CaddyUnitTest do
         client: MockClient,
         mock_responses: %{
           {:get_config, "/apps/http/servers/otturnaut"} => {:error, :caddy_unavailable}
+        }
+      ]
+
+      assert {:error, :caddy_unavailable} = Caddy.add_route(route, opts)
+    end
+
+    test "falls back to append when route doesn't exist (404 from put_by_id)" do
+      route = Route.new("newapp", "newapp.com", 3000)
+
+      opts = [
+        client: MockClient,
+        mock_responses: %{
+          {:get_config, "/apps/http/servers/otturnaut"} => {:ok, %{"routes" => []}},
+          {:put_by_id, "newapp"} =>
+            {:error, {:unexpected_status, 404, %{"error" => "unknown object ID"}}}
+        }
+      ]
+
+      assert :ok = Caddy.add_route(route, opts)
+    end
+
+    test "propagates non-404 errors from put_by_id" do
+      route = Route.new("myapp", "myapp.com", 3000)
+
+      opts = [
+        client: MockClient,
+        mock_responses: %{
+          {:get_config, "/apps/http/servers/otturnaut"} => {:ok, %{"routes" => []}},
+          {:put_by_id, "myapp"} => {:error, :caddy_unavailable}
+        }
+      ]
+
+      assert {:error, :caddy_unavailable} = Caddy.add_route(route, opts)
+    end
+
+    test "falls back to set_config when append fails (routes array missing)" do
+      route = Route.new("newapp", "newapp.com", 3000)
+
+      opts = [
+        client: MockClient,
+        mock_responses: %{
+          {:get_config, "/apps/http/servers/otturnaut"} => {:ok, %{"routes" => []}},
+          {:put_by_id, "newapp"} =>
+            {:error, {:unexpected_status, 404, %{"error" => "unknown object ID"}}},
+          {:append_config, "/apps/http/servers/otturnaut/routes"} =>
+            {:error, {:unexpected_status, 500, %{"error" => "final element is not an array"}}}
+        }
+      ]
+
+      assert :ok = Caddy.add_route(route, opts)
+    end
+
+    test "propagates errors from append_config (non-500)" do
+      route = Route.new("newapp", "newapp.com", 3000)
+
+      opts = [
+        client: MockClient,
+        mock_responses: %{
+          {:get_config, "/apps/http/servers/otturnaut"} => {:ok, %{"routes" => []}},
+          {:put_by_id, "newapp"} =>
+            {:error, {:unexpected_status, 404, %{"error" => "unknown object ID"}}},
+          {:append_config, "/apps/http/servers/otturnaut/routes"} =>
+            {:error, :caddy_unavailable}
         }
       ]
 
@@ -530,7 +614,7 @@ defmodule Otturnaut.CaddyUnitTest do
         {:ok, %Req.Response{status: 200, body: %{"routes" => []}}}
       end)
 
-      stub(Req, :post, fn _url, _opts ->
+      stub(Req, :patch, fn _url, _opts ->
         {:ok, %Req.Response{status: 200, body: %{}}}
       end)
 

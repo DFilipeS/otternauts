@@ -80,8 +80,29 @@ defmodule Otturnaut.Caddy do
   def add_route(%Route{} = route, opts \\ []) do
     with :ok <- ensure_server_exists(opts) do
       config = Route.to_caddy_config(route)
-      # POST to routes path appends a single item to the array
-      client(opts).set_config(@routes_path, config, opts)
+      # Try PATCH first (update existing), fall back to append on 404
+      case client(opts).put_by_id(route.id, config, opts) do
+        :ok ->
+          :ok
+
+        {:error, {:unexpected_status, 404, _}} ->
+          # Route doesn't exist, append to routes array
+          # If append fails (array doesn't exist), initialize routes with this route
+          case client(opts).append_config(@routes_path, config, opts) do
+            :ok ->
+              :ok
+
+            {:error, {:unexpected_status, 500, _}} ->
+              # Routes array doesn't exist or is empty, use PATCH to set it
+              client(opts).patch_config(@routes_path, [config], opts)
+
+            {:error, _} = error ->
+              error
+          end
+
+        {:error, _} = error ->
+          error
+      end
     end
   end
 

@@ -92,18 +92,51 @@ defmodule Otturnaut.Source.Git do
   end
 
   defp do_clone(repo_url, target_dir, ref, depth, ssh_key, cmd) do
-    args = build_clone_args(repo_url, target_dir, ref, depth)
     env = build_env(ssh_key)
 
-    result = cmd.run("git", args, env: env)
+    # Try branch/tag clone first, fall back to full clone + checkout for commits
+    case clone_with_branch(repo_url, target_dir, ref, depth, env, cmd) do
+      :ok ->
+        :ok
 
-    case result do
+      {:error, _reason} ->
+        # ref might be a commit hash, clone without --branch and checkout
+        clone_and_checkout(repo_url, target_dir, ref, env, cmd)
+    end
+  end
+
+  defp clone_with_branch(repo_url, target_dir, ref, depth, env, cmd) do
+    args = build_branch_clone_args(repo_url, target_dir, ref, depth)
+
+    case cmd.run("git", args, env: env) do
       %Result{status: :ok} -> :ok
       %Result{status: :error, error: error, output: output} -> {:error, {:clone_failed, error, output}}
     end
   end
 
-  defp build_clone_args(repo_url, target_dir, ref, depth) do
+  defp clone_and_checkout(repo_url, target_dir, ref, env, cmd) do
+    # Clone without --branch (full history needed for arbitrary commits)
+    clone_args = ["clone", repo_url, target_dir]
+
+    case cmd.run("git", clone_args, env: env) do
+      %Result{status: :ok} ->
+        checkout_ref(target_dir, ref, cmd)
+
+      %Result{status: :error, error: error, output: output} ->
+        {:error, {:clone_failed, error, output}}
+    end
+  end
+
+  defp checkout_ref(target_dir, ref, cmd) do
+    checkout_args = ["-C", target_dir, "checkout", ref]
+
+    case cmd.run("git", checkout_args) do
+      %Result{status: :ok} -> :ok
+      %Result{status: :error, error: error, output: output} -> {:error, {:checkout_failed, error, output}}
+    end
+  end
+
+  defp build_branch_clone_args(repo_url, target_dir, ref, depth) do
     base_args = ["clone", "--branch", ref, "--single-branch"]
 
     depth_args =

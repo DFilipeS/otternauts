@@ -38,12 +38,32 @@ defmodule Otturnaut.Source.GitTest do
     def run("git", args, opts) do
       send(self(), {:git_called, args, opts})
 
-      case Process.get(:mock_git_result, :success) do
-        :success ->
+      mock_result = Process.get(:mock_git_result, :success)
+
+      case {mock_result, args} do
+        {:success, _} ->
           Result.success("", 100)
 
-        :failure ->
+        {:failure, _} ->
           Result.failure(128, "fatal: error", 100)
+
+        {:branch_fails_commit_succeeds, ["clone", "--branch" | _]} ->
+          Result.failure(128, "fatal: Remote branch not found", 100)
+
+        {:branch_fails_commit_succeeds, ["clone", _url, _dir]} ->
+          Result.success("", 100)
+
+        {:branch_fails_commit_succeeds, ["-C", _dir, "checkout", _ref]} ->
+          Result.success("", 100)
+
+        {:checkout_fails, ["clone", "--branch" | _]} ->
+          Result.failure(128, "fatal: Remote branch not found", 100)
+
+        {:checkout_fails, ["clone", _url, _dir]} ->
+          Result.success("", 100)
+
+        {:checkout_fails, ["-C", _dir, "checkout", _ref]} ->
+          Result.failure(1, "fatal: reference is not a tree", 100)
       end
     end
   end
@@ -142,6 +162,39 @@ defmodule Otturnaut.Source.GitTest do
       refute "--depth" in args
 
       Git.cleanup(path)
+    end
+
+    test "falls back to full clone + checkout when ref is a commit hash" do
+      Process.put(:mock_git_result, :branch_fails_commit_succeeds)
+      repo_url = "https://github.com/user/app.git"
+      commit_hash = "a36e58acd8002cbfcea68c7a277a6515a6ac2dac"
+
+      {:ok, path, _returned_hash} = Git.clone(repo_url, ref: commit_hash, command_module: MockCommand)
+
+      # First call: clone with --branch (fails)
+      assert_received {:git_called, ["clone", "--branch", ^commit_hash | _], _opts}
+
+      # Second call: full clone without --branch
+      assert_received {:git_called, ["clone", ^repo_url, ^path], _opts}
+
+      # Third call: checkout the commit
+      assert_received {:git_called, ["-C", ^path, "checkout", ^commit_hash], _opts}
+
+      Git.cleanup(path)
+    after
+      Process.delete(:mock_git_result)
+    end
+
+    test "returns error when checkout fails for invalid commit" do
+      Process.put(:mock_git_result, :checkout_fails)
+      repo_url = "https://github.com/user/app.git"
+      bad_ref = "invalid-commit-hash"
+
+      result = Git.clone(repo_url, ref: bad_ref, command_module: MockCommand)
+
+      assert {:error, {:checkout_failed, {:exit, 1}, _output}} = result
+    after
+      Process.delete(:mock_git_result)
     end
   end
 

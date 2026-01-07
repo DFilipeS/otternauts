@@ -166,6 +166,58 @@ defmodule Otturnaut.Caddy.ClientTest do
     end
   end
 
+  describe "patch_config/3" do
+    test "returns :ok on success" do
+      Req.Test.stub(__MODULE__.PatchConfigSuccess, fn conn ->
+        assert conn.method == "PATCH"
+        assert conn.request_path == "/config/routes/"
+
+        Req.Test.json(conn, %{})
+      end)
+
+      result = Client.patch_config("/routes", [%{"@id" => "test"}], plug(__MODULE__.PatchConfigSuccess))
+      assert :ok = result
+    end
+
+    test "returns error on unexpected status" do
+      Req.Test.stub(__MODULE__.PatchConfigError, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(500, Jason.encode!(%{"error" => "server error"}))
+      end)
+
+      result = Client.patch_config("/routes/fail", %{}, plug(__MODULE__.PatchConfigError))
+      assert {:error, {:unexpected_status, 500, _body}} = result
+    end
+
+    test "returns :caddy_unavailable when connection refused" do
+      stub(Req, :patch, fn _url, _opts ->
+        {:error, %Req.TransportError{reason: :econnrefused}}
+      end)
+
+      result = Client.patch_config("/routes", %{})
+      assert {:error, :caddy_unavailable} = result
+    end
+
+    test "returns :timeout on timeout error" do
+      stub(Req, :patch, fn _url, _opts ->
+        {:error, %Req.TransportError{reason: :timeout}}
+      end)
+
+      result = Client.patch_config("/test", %{})
+      assert {:error, :timeout} = result
+    end
+
+    test "returns :request_failed on other errors" do
+      stub(Req, :patch, fn _url, _opts ->
+        {:error, %Req.TransportError{reason: :nxdomain}}
+      end)
+
+      result = Client.patch_config("/test", %{})
+      assert {:error, :request_failed} = result
+    end
+  end
+
   describe "delete_config/2" do
     test "returns :ok on success" do
       Req.Test.stub(__MODULE__.DeleteConfigSuccess, fn conn ->
@@ -266,6 +318,58 @@ defmodule Otturnaut.Caddy.ClientTest do
       end)
 
       result = Client.get_by_id("test")
+      assert {:error, :request_failed} = result
+    end
+  end
+
+  describe "put_by_id/3" do
+    test "returns :ok on success" do
+      Req.Test.stub(__MODULE__.PutByIdSuccess, fn conn ->
+        assert conn.method == "PATCH"
+        assert conn.request_path == "/id/myroute"
+
+        Req.Test.json(conn, %{})
+      end)
+
+      result = Client.put_by_id("myroute", %{"key" => "value"}, plug(__MODULE__.PutByIdSuccess))
+      assert :ok = result
+    end
+
+    test "returns error on unexpected status" do
+      Req.Test.stub(__MODULE__.PutByIdError, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(400, Jason.encode!(%{"error" => "bad request"}))
+      end)
+
+      result = Client.put_by_id("fail", %{}, plug(__MODULE__.PutByIdError))
+      assert {:error, {:unexpected_status, 400, _body}} = result
+    end
+
+    test "returns :caddy_unavailable when connection refused" do
+      stub(Req, :patch, fn _url, _opts ->
+        {:error, %Req.TransportError{reason: :econnrefused}}
+      end)
+
+      result = Client.put_by_id("test", %{})
+      assert {:error, :caddy_unavailable} = result
+    end
+
+    test "returns :timeout on timeout error" do
+      stub(Req, :patch, fn _url, _opts ->
+        {:error, %Req.TransportError{reason: :timeout}}
+      end)
+
+      result = Client.put_by_id("test", %{})
+      assert {:error, :timeout} = result
+    end
+
+    test "returns :request_failed on other errors" do
+      stub(Req, :patch, fn _url, _opts ->
+        {:error, %Req.TransportError{reason: :nxdomain}}
+      end)
+
+      result = Client.put_by_id("test", %{})
       assert {:error, :request_failed} = result
     end
   end

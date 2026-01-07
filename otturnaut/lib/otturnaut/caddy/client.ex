@@ -66,6 +66,21 @@ defmodule Otturnaut.Caddy.Client do
   end
 
   @doc """
+  Replaces the config at the given path.
+
+  Uses PATCH to replace/update the config at that path.
+  Unlike POST, PATCH works to replace arrays and existing values.
+  """
+  @spec patch_config(String.t(), any(), keyword()) :: :ok | error()
+  def patch_config(path, config, opts \\ []) do
+    url = build_url("/config#{path}", opts)
+
+    url
+    |> Req.patch(Keyword.put(req_opts(opts), :json, config))
+    |> handle_response(:patch)
+  end
+
+  @doc """
   Deletes the config at the given path.
   """
   @spec delete_config(String.t(), keyword()) :: :ok | error()
@@ -89,6 +104,21 @@ defmodule Otturnaut.Caddy.Client do
     url
     |> Req.get(req_opts(opts))
     |> handle_response(:get)
+  end
+
+  @doc """
+  Updates (replaces) an object by its @id field.
+
+  Uses PATCH to the /id/ endpoint. This is idempotent — if the object
+  already exists it will be replaced, if not it will be created.
+  """
+  @spec put_by_id(String.t(), any(), keyword()) :: :ok | error()
+  def put_by_id(id, config, opts \\ []) do
+    url = build_id_url(id, opts)
+
+    url
+    |> Req.patch(Keyword.put(req_opts(opts), :json, config))
+    |> handle_response(:patch)
   end
 
   @doc """
