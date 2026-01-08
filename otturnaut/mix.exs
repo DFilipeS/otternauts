@@ -23,6 +23,7 @@ defmodule Otturnaut.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      {:reactor, "~> 0.17"},
       {:req, "~> 0.5"},
       {:mimic, "~> 2.0", only: :test},
       {:plug, "~> 1.19", only: :test}
