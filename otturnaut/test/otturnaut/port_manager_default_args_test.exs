@@ -81,15 +81,6 @@ defmodule Otturnaut.PortManagerDefaultArgsTest do
       PortManager.release(port)
     end
 
-    test "mark_in_use/1 with default server" do
-      # Use a port within the current range
-      {min, _max} = PortManager.get_range()
-      test_port = min + 5
-      assert :ok = PortManager.mark_in_use(test_port)
-      assert PortManager.in_use?(test_port)
-      PortManager.release(test_port)
-    end
-
     test "get_range/0 with default server" do
       {min, max} = PortManager.get_range()
       assert is_integer(min)

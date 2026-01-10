@@ -45,15 +45,18 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreen do
 
   @behaviour Otturnaut.Deployment.Strategy
 
+  require Logger
+
   alias Otturnaut.Deployment
   alias Otturnaut.Deployment.Reactors.BlueGreen, as: BlueGreenReactor
-  alias Otturnaut.Caddy.Route
 
   @impl true
   def name, do: "Blue-Green"
 
   @impl true
   def execute(deployment, context, opts \\ []) do
+    log_deployment_start(deployment)
+
     result =
       Reactor.run(
         BlueGreenReactor,
@@ -65,50 +68,49 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreen do
       )
 
     case result do
-      {:ok, %{app_id: _app_id}} ->
+      {:ok, reactor_result} ->
         completed =
           deployment
+          |> put_deployment_info(reactor_result)
           |> Deployment.mark_completed()
-          |> put_container_info_from_reactor()
 
+        log_deployment_success(completed)
         {:ok, completed}
 
       {:error, errors} ->
         reason = extract_error_reason(errors)
+        log_deployment_failure(deployment, reason)
         {:error, reason, Deployment.mark_failed(deployment, reason)}
     end
   end
 
-  @impl true
-  def rollback(deployment, context, opts \\ []) do
-    %{port_manager: port_manager, caddy: caddy} = context
-    %{runtime: runtime, runtime_opts: runtime_opts} = deployment
-
-    if deployment.container_name do
-      runtime.stop(deployment.container_name, runtime_opts)
-      runtime.remove(deployment.container_name, runtime_opts)
-    end
-
-    if deployment.port do
-      port_manager.release(deployment.port)
-    end
-
-    if deployment.previous_port && deployment.status == :failed do
-      route = %Route{
-        id: "#{deployment.app_id}-route",
-        domains: deployment.domains,
-        upstream_port: deployment.previous_port
-      }
-
-      caddy.add_route(route, opts)
-    end
-
-    :ok
+  defp log_deployment_start(deployment) do
+    Logger.info(
+      "Starting deployment app_id=#{deployment.app_id} deployment_id=#{deployment.id} image=#{deployment.image} strategy=blue-green"
+    )
   end
 
-  defp put_container_info_from_reactor(deployment) do
-    container_name = Deployment.container_name(deployment)
-    %{deployment | container_name: container_name}
+  defp log_deployment_success(completed) do
+    Logger.info(
+      "Deployment completed app_id=#{completed.app_id} deployment_id=#{completed.id} port=#{completed.port} container=#{completed.container_name}"
+    )
+  end
+
+  defp log_deployment_failure(deployment, reason) do
+    Logger.error(
+      "Deployment failed app_id=#{deployment.app_id} deployment_id=#{deployment.id} error=#{inspect(reason)}"
+    )
+  end
+
+  defp put_deployment_info(deployment, reactor_result) do
+    %{
+      deployment
+      | port: reactor_result.port,
+        container_name: reactor_result.container_name,
+        container_id: reactor_result.container_id,
+        previous_container_name: reactor_result.previous_container_name,
+        previous_port: reactor_result.previous_port
+    }
   end
 
   defp extract_error_reason(%Reactor.Error.Invalid{errors: [first | _]}) do

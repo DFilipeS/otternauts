@@ -28,20 +28,33 @@ defmodule Otturnaut.Deployment.Steps.UpdateAppState do
 
     :ok = app_state.put(deployment.app_id, app)
 
-    {:ok, %{app_id: deployment.app_id, previous_state: previous_state}}
+    {:ok,
+     %{
+       app_id: deployment.app_id,
+       port: port,
+       container_name: container.container_name,
+       container_id: container.container_id,
+       previous_container_name: previous_state.previous_container_name,
+       previous_port: previous_state.previous_port
+     }}
   end
 
   @impl true
   def undo(result, arguments, _context, _options) do
-    %{app_id: app_id, previous_state: previous_state} = result
+    %{
+      app_id: app_id,
+      previous_container_name: previous_container_name,
+      previous_port: previous_port
+    } = result
+
     %{app_state: app_state} = arguments
 
-    case previous_state do
-      %{previous_container_name: nil, previous_port: nil} ->
+    case {previous_container_name, previous_port} do
+      {nil, nil} ->
         _ = app_state.delete(app_id)
         :ok
 
-      %{previous_container_name: container_name, previous_port: port} ->
+      {container_name, port} ->
         previous_app = %{
           deployment_id: extract_deploy_id(container_name),
           container_name: container_name,

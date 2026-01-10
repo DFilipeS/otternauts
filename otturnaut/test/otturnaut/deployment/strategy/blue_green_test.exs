@@ -175,8 +175,13 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
 
       assert {:ok, completed} = BlueGreen.execute(deployment, context, [])
 
+      # Verify deployment struct is fully populated
       assert completed.status == :completed
       assert completed.container_name == "otturnaut-myapp-deploy-1"
+      assert is_binary(completed.container_id)
+      assert completed.port == 10000
+      assert completed.previous_container_name == nil
+      assert completed.previous_port == nil
 
       {:ok, app} = MockAppState.get("myapp")
       assert app.port == 10000
@@ -227,8 +232,12 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
 
       assert {:ok, completed} = BlueGreen.execute(deployment, context, [])
 
+      # Verify deployment struct includes previous deployment info
       assert completed.status == :completed
       assert completed.container_name == "otturnaut-myapp-deploy-2"
+      assert completed.port == 10000
+      assert completed.previous_container_name == "otturnaut-myapp-old-deploy"
+      assert completed.previous_port == 9999
 
       {:ok, app} = MockAppState.get("myapp")
       assert app.port == 10000
@@ -341,123 +350,6 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
     end
   end
 
-  describe "rollback/3" do
-    test "cleans up container and port on failed deployment", %{context: context} do
-      MockRuntime.start(%{name: "otturnaut-myapp-deploy-1"})
-      MockPortManager.mark_in_use(10000)
-
-      deployment = %Deployment{
-        id: "deploy-1",
-        app_id: "myapp",
-        image: "myapp:latest",
-        container_port: 3000,
-        domains: [],
-        port: 10000,
-        container_name: "otturnaut-myapp-deploy-1",
-        container_id: "container-123",
-        status: :failed,
-        error: :some_error,
-        runtime: MockRuntime,
-        runtime_opts: []
-      }
-
-      assert :ok = BlueGreen.rollback(deployment, context, [])
-
-      allocated = MockPortManager.allocated_ports()
-      refute 10000 in allocated
-    end
-
-    test "restores previous route on failed deployment with previous port", %{context: context} do
-      MockRuntime.start(%{name: "otturnaut-myapp-deploy-1"})
-      MockPortManager.mark_in_use(10000)
-      MockPortManager.mark_in_use(9999)
-
-      deployment = %Deployment{
-        id: "deploy-1",
-        app_id: "myapp",
-        image: "myapp:latest",
-        container_port: 3000,
-        domains: ["myapp.com"],
-        port: 10000,
-        container_name: "otturnaut-myapp-deploy-1",
-        container_id: "container-123",
-        previous_container_name: "otturnaut-myapp-old",
-        previous_port: 9999,
-        status: :failed,
-        error: :some_error,
-        runtime: MockRuntime,
-        runtime_opts: []
-      }
-
-      assert :ok = BlueGreen.rollback(deployment, context, [])
-
-      [route] = MockCaddy.get_routes()
-      assert route.upstream_port == 9999
-    end
-
-    test "handles rollback with nil container_name", %{context: context} do
-      deployment = %Deployment{
-        id: "deploy-1",
-        app_id: "myapp",
-        image: "myapp:latest",
-        container_port: 3000,
-        domains: [],
-        port: nil,
-        container_name: nil,
-        container_id: nil,
-        status: :failed,
-        error: :some_error,
-        runtime: MockRuntime,
-        runtime_opts: []
-      }
-
-      assert :ok = BlueGreen.rollback(deployment, context, [])
-    end
-
-    test "handles rollback with nil port", %{context: context} do
-      deployment = %Deployment{
-        id: "deploy-1",
-        app_id: "myapp",
-        image: "myapp:latest",
-        container_port: 3000,
-        domains: [],
-        port: nil,
-        container_name: nil,
-        container_id: nil,
-        status: :failed,
-        error: :some_error,
-        runtime: MockRuntime,
-        runtime_opts: []
-      }
-
-      assert :ok = BlueGreen.rollback(deployment, context, [])
-    end
-
-    test "does not restore route if status is not failed", %{context: context} do
-      deployment = %Deployment{
-        id: "deploy-1",
-        app_id: "myapp",
-        image: "myapp:latest",
-        container_port: 3000,
-        domains: ["myapp.com"],
-        port: 10000,
-        container_name: "otturnaut-myapp-deploy-1",
-        container_id: "container-123",
-        previous_container_name: "otturnaut-myapp-old",
-        previous_port: 9999,
-        status: :in_progress,
-        error: nil,
-        runtime: MockRuntime,
-        runtime_opts: []
-      }
-
-      set_container_status("otturnaut-myapp-deploy-1", :running)
-
-      assert :ok = BlueGreen.rollback(deployment, context, [])
-      assert MockCaddy.get_routes() == []
-    end
-  end
-
   describe "default argument coverage" do
     test "execute with only deployment and context", %{context: context} do
       deployment =
@@ -473,24 +365,53 @@ defmodule Otturnaut.Deployment.Strategy.BlueGreenTest do
       assert {:ok, completed} = BlueGreen.execute(deployment, context)
       assert completed.status == :completed
     end
+  end
 
-    test "rollback with only deployment and context", %{context: context} do
-      deployment = %Deployment{
-        id: "deploy-1",
-        app_id: "myapp",
-        image: "myapp:latest",
-        container_port: 3000,
-        domains: [],
-        port: nil,
-        container_name: nil,
-        container_id: nil,
-        status: :failed,
-        error: :some_error,
-        runtime: MockRuntime,
-        runtime_opts: []
-      }
+  describe "logging" do
+    import ExUnit.CaptureLog
 
-      assert :ok = BlueGreen.rollback(deployment, context)
+    @tag :capture_log
+    test "logs deployment lifecycle on success", %{context: context} do
+      deployment =
+        Deployment.new(%{
+          id: "deploy-log",
+          app_id: "logapp",
+          image: "logapp:latest",
+          container_port: 3000,
+          domains: [],
+          runtime: MockRuntime
+        })
+
+      log =
+        capture_log([level: :info], fn ->
+          assert {:ok, _completed} = BlueGreen.execute(deployment, context, [])
+        end)
+
+      assert log =~ "Starting deployment"
+      assert log =~ "app_id=logapp"
+      assert log =~ "Deployment completed"
+    end
+
+    @tag :capture_log
+    test "logs deployment failure", %{context: context} do
+      deployment =
+        Deployment.new(%{
+          id: "deploy-fail-log",
+          app_id: "faillogapp",
+          image: "faillogapp:latest",
+          container_port: 3000,
+          domains: [],
+          runtime: FailingRuntime
+        })
+
+      log =
+        capture_log([level: :info], fn ->
+          assert {:error, _, _} = BlueGreen.execute(deployment, context, [])
+        end)
+
+      assert log =~ "Starting deployment"
+      assert log =~ "Deployment failed"
+      assert log =~ "app_id=faillogapp"
     end
   end
 

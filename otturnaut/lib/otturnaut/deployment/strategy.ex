@@ -54,15 +54,6 @@ defmodule Otturnaut.Deployment.Strategy do
               result()
 
   @doc """
-  Rolls back a failed or in-progress deployment.
-
-  Cleans up any resources created during a partial deployment (e.g., stop new
-  container, release port, restore old route).
-  """
-  @callback rollback(deployment :: Deployment.t(), context :: context(), opts :: keyword()) ::
-              :ok | {:error, term()}
-
-  @doc """
   Returns the name of the strategy for display purposes.
   """
   @callback name() :: String.t()

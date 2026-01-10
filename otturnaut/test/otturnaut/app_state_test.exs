@@ -13,61 +13,6 @@ defmodule Otturnaut.AppStateTest do
 
   alias Otturnaut.AppState
 
-  # Mock runtimes for recovery tests
-  defmodule MockRuntime do
-    def list_apps do
-      {:ok,
-       [
-         %{
-           id: "myapp",
-           container_name: "otturnaut-myapp-abc123",
-           port: 10042,
-           status: :running
-         },
-         %{
-           id: "otherapp",
-           container_name: "otturnaut-otherapp-def456",
-           port: 10043,
-           status: :stopped
-         }
-       ]}
-    end
-  end
-
-  defmodule MockRuntimeNoPort do
-    def list_apps do
-      {:ok,
-       [
-         %{
-           id: "noport",
-           container_name: "otturnaut-noport-xyz789",
-           port: nil,
-           status: :running
-         }
-       ]}
-    end
-  end
-
-  defmodule MockRuntimeWeirdName do
-    def list_apps do
-      {:ok,
-       [
-         %{
-           id: "weird",
-           container_name: "some-other-format",
-           port: 10044,
-           status: :running
-         }
-       ]}
-    end
-  end
-
-  defmodule FailingRuntime do
-    def list_apps do
-      {:error, :docker_unavailable}
-    end
-  end
-
   setup do
     # Start a uniquely named instance for this test
     server_name = :"app_state_#{:erlang.unique_integer([:positive])}"
@@ -244,23 +189,6 @@ defmodule Otturnaut.AppStateTest do
 
       assert :ok = AppState.clear(server)
       assert AppState.list(server) == []
-    end
-  end
-
-  # Note: recover_from_runtime tests that need the global PortManager are in
-  # app_state_default_args_test.exs (sync file) to avoid race conditions
-
-  describe "recover_from_runtime/1 (no port)" do
-    test "returns error when runtime fails", %{server: server} do
-      assert {:error, :docker_unavailable} = AppState.recover_from_runtime(FailingRuntime, server)
-    end
-
-    test "handles apps without port mapping", %{server: server} do
-      assert :ok = AppState.recover_from_runtime(MockRuntimeNoPort, server)
-
-      {:ok, app} = AppState.get("noport", server)
-      assert app.port == nil
-      assert app.deployment_id == "xyz789"
     end
   end
 end

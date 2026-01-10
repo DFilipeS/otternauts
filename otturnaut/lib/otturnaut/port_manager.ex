@@ -69,15 +69,6 @@ defmodule Otturnaut.PortManager do
   end
 
   @doc """
-  Marks a port as in use. Used during state recovery to register
-  ports discovered from the runtime.
-  """
-  @spec mark_in_use(pos_integer(), GenServer.server()) :: :ok | {:error, :out_of_range}
-  def mark_in_use(port, server \\ __MODULE__) when is_integer(port) do
-    GenServer.call(server, {:mark_in_use, port})
-  end
-
-  @doc """
   Returns the configured port range.
   """
   @spec get_range(GenServer.server()) :: {pos_integer(), pos_integer()}
@@ -123,15 +114,6 @@ defmodule Otturnaut.PortManager do
 
   def handle_call(:list_allocated, _from, state) do
     {:reply, MapSet.to_list(state.allocated), state}
-  end
-
-  def handle_call({:mark_in_use, port}, _from, state) do
-    if port >= state.min_port and port <= state.max_port do
-      new_state = %{state | allocated: MapSet.put(state.allocated, port)}
-      {:reply, :ok, new_state}
-    else
-      {:reply, {:error, :out_of_range}, state}
-    end
   end
 
   def handle_call(:get_range, _from, state) do

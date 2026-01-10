@@ -3,7 +3,7 @@ defmodule Otturnaut.DeploymentTest do
 
   alias Otturnaut.Deployment
 
-  # Strategy mocks for execute/rollback tests
+  # Strategy mocks for execute tests
   defmodule SuccessStrategy do
     def execute(deployment, _context, _opts) do
       {:ok, %{deployment | port: 10042, container_id: "abc123"}}
@@ -20,19 +20,6 @@ defmodule Otturnaut.DeploymentTest do
     def execute(_deployment, _context, opts) do
       send(self(), {:opts_received, opts})
       {:ok, %Otturnaut.Deployment{id: "x", app_id: "x", image: "x", container_port: 1}}
-    end
-  end
-
-  defmodule RollbackStrategy do
-    def rollback(deployment, context, opts) do
-      send(self(), {:rollback_called, deployment, context, opts})
-      :ok
-    end
-  end
-
-  defmodule RollbackFailStrategy do
-    def rollback(_deployment, _context, _opts) do
-      {:error, :rollback_failed}
     end
   end
 
@@ -219,46 +206,6 @@ defmodule Otturnaut.DeploymentTest do
       Deployment.execute(deployment, OptsStrategy, %{}, timeout: 5000)
 
       assert_receive {:opts_received, [timeout: 5000]}
-    end
-  end
-
-  describe "rollback/4" do
-    test "calls strategy.rollback" do
-      deployment =
-        Deployment.new(%{
-          app_id: "myapp",
-          image: "myapp:latest",
-          container_port: 3000
-        })
-
-      assert :ok = Deployment.rollback(deployment, RollbackStrategy)
-
-      assert_receive {:rollback_called, ^deployment, %Deployment.Context{}, []}
-    end
-
-    test "passes opts to strategy.rollback" do
-      deployment =
-        Deployment.new(%{
-          app_id: "myapp",
-          image: "myapp:latest",
-          container_port: 3000
-        })
-
-      Deployment.rollback(deployment, RollbackStrategy, %{}, force: true)
-
-      assert_receive {:rollback_called, _, _, [force: true]}
-    end
-
-    test "returns error from strategy" do
-      deployment =
-        Deployment.new(%{
-          app_id: "myapp",
-          image: "myapp:latest",
-          container_port: 3000
-        })
-
-      assert {:error, :rollback_failed} =
-               Deployment.rollback(deployment, RollbackFailStrategy, %{})
     end
   end
 

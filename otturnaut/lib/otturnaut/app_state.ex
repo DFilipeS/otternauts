@@ -124,17 +124,6 @@ defmodule Otturnaut.AppState do
     GenServer.call(server, :clear)
   end
 
-  @doc """
-  Recovers state from the runtime.
-
-  Queries the runtime for running containers/services and populates the state.
-  Also registers ports with the PortManager.
-  """
-  @spec recover_from_runtime(module(), GenServer.server()) :: :ok
-  def recover_from_runtime(runtime, server \\ __MODULE__) do
-    GenServer.call(server, {:recover, runtime}, :timer.seconds(30))
-  end
-
   # Server callbacks
 
   @impl true
@@ -186,47 +175,5 @@ defmodule Otturnaut.AppState do
   def handle_call(:clear, _from, %{table: table} = state) do
     :ets.delete_all_objects(table)
     {:reply, :ok, state}
-  end
-
-  # Maybe we will get rid of this all together and just rely on syncing state
-  # from Mission Control every time the agent boots up.
-  def handle_call({:recover, runtime}, _from, %{table: table} = state) do
-    case runtime.list_apps() do
-      {:ok, apps} ->
-        for app <- apps, app.status == :running do
-          # Register with AppState
-          :ets.insert(table, {
-            app.id,
-            %{
-              deployment_id: extract_deploy_id(app.container_name),
-              container_name: app.container_name,
-              port: app.port,
-              # Will be synced from Mission Control
-              domains: [],
-              status: :running
-            }
-          })
-
-          # Register port with PortManager if port exists
-          if app.port do
-            Otturnaut.PortManager.mark_in_use(app.port)
-          end
-        end
-
-        {:reply, :ok, state}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
-  end
-
-  # Helpers
-
-  defp extract_deploy_id(container_name) do
-    # otturnaut-myapp-abc123 -> abc123
-    case String.split(container_name, "-", parts: 3) do
-      ["otturnaut", _app_id, deploy_id] -> deploy_id
-      _ -> "unknown"
-    end
   end
 end

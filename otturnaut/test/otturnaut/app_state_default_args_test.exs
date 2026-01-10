@@ -6,7 +6,6 @@ defmodule Otturnaut.AppStateDefaultArgsTest do
   use ExUnit.Case, async: false
 
   alias Otturnaut.AppState
-  alias Otturnaut.PortManager
 
   setup do
     # Ensure the default named server is running
@@ -105,122 +104,6 @@ defmodule Otturnaut.AppStateDefaultArgsTest do
       AppState.put("clear-app", app)
       assert :ok = AppState.clear()
       assert AppState.list() == []
-    end
-
-    test "recover_from_runtime/1 with default server" do
-      # Ensure PortManager is running for recovery
-      ensure_global_port_manager()
-
-      assert :ok = AppState.recover_from_runtime(__MODULE__.DefaultRuntimeMock)
-      assert {:ok, _} = AppState.get("recover-app")
-    end
-  end
-
-  # Mock runtimes for testing - defined at module level to avoid redefinition warnings
-  defmodule DefaultRuntimeMock do
-    def list_apps do
-      {:ok, [%{id: "recover-app", container_name: "otturnaut-recover-app-123", port: nil, status: :running}]}
-    end
-  end
-
-  defmodule MockRuntime do
-    def list_apps do
-      {:ok,
-       [
-         %{
-           id: "myapp",
-           container_name: "otturnaut-myapp-abc123",
-           port: 10042,
-           status: :running
-         },
-         %{
-           id: "otherapp",
-           container_name: "otturnaut-otherapp-def456",
-           port: 10043,
-           status: :stopped
-         }
-       ]}
-    end
-  end
-
-  defmodule MockRuntimeWeirdName do
-    def list_apps do
-      {:ok,
-       [
-         %{
-           id: "weird",
-           container_name: "some-other-format",
-           port: 10044,
-           status: :running
-         }
-       ]}
-    end
-  end
-
-  describe "recover_from_runtime with ports (needs global PortManager)" do
-    # These tests are here (sync) because they need the global PortManager
-
-    setup do
-      ensure_global_port_manager({10000, 11000})
-      :ok
-    end
-
-    test "populates state from runtime" do
-      # Ensure AppState is running
-      case Process.whereis(AppState) do
-        nil -> {:ok, _} = AppState.start_link()
-        _ -> :ok
-      end
-      AppState.clear()
-
-      assert :ok = AppState.recover_from_runtime(MockRuntime)
-
-      # Only running apps are recovered
-      {:ok, app} = AppState.get("myapp")
-      assert app.deployment_id == "abc123"
-      assert app.port == 10042
-      assert app.status == :running
-
-      # Stopped apps are not recovered
-      assert {:error, :not_found} = AppState.get("otherapp")
-    end
-
-    test "handles apps with non-standard container names" do
-      # Ensure AppState is running
-      case Process.whereis(AppState) do
-        nil -> {:ok, _} = AppState.start_link()
-        _ -> :ok
-      end
-      AppState.clear()
-
-      assert :ok = AppState.recover_from_runtime(MockRuntimeWeirdName)
-
-      {:ok, app} = AppState.get("weird")
-      assert app.deployment_id == "unknown"
-      assert app.port == 10044
-    end
-  end
-
-  # Helper to ensure the global PortManager is running
-  defp ensure_global_port_manager(port_range \\ {10_000, 20_000}) do
-    case Process.whereis(PortManager) do
-      nil ->
-        case PortManager.start_link(port_range: port_range) do
-          {:ok, _} -> :ok
-          {:error, {:already_started, _}} -> :ok
-        end
-      pid ->
-        # Stop and restart with the required range
-        try do
-          GenServer.stop(pid)
-        catch
-          :exit, _ -> :ok
-        end
-
-        case PortManager.start_link(port_range: port_range) do
-          {:ok, _} -> :ok
-          {:error, {:already_started, _}} -> :ok
-        end
     end
   end
 end

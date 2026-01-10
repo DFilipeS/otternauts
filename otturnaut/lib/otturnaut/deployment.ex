@@ -10,7 +10,7 @@ defmodule Otturnaut.Deployment do
   1. Create deployment with `new/1`
   2. Execute with a strategy via `execute/2`
   3. On success, deployment contains new container info
-  4. On failure, rollback cleans up partial state
+  4. On failure, the strategy automatically cleans up partial state (saga pattern)
   5. To remove a deployed app, use `undeploy/1`
 
   ## Example
@@ -27,9 +27,10 @@ defmodule Otturnaut.Deployment do
         {:ok, completed} ->
           IO.puts("Deployed to port \#{completed.port}")
 
-        {:error, reason, partial} ->
+        {:error, reason, failed} ->
+          # No manual rollback needed - the strategy's saga automatically
+          # cleans up any resources allocated during the failed deployment
           IO.puts("Failed: \#{inspect(reason)}")
-          Deployment.rollback(partial, Strategy.BlueGreen)
       end
 
       # Later, to remove the application
@@ -163,26 +164,6 @@ defmodule Otturnaut.Deployment do
   end
 
   @doc """
-  Rolls back a deployment using the given strategy.
-
-  Cleans up any resources created during a failed deployment.
-
-  ## Examples
-
-      # Use defaults
-      Deployment.rollback(deployment, Strategy.BlueGreen)
-
-      # Override context modules for testing
-      Deployment.rollback(deployment, Strategy.BlueGreen, %{port_manager: MockPortManager})
-
-  """
-  @spec rollback(t(), module(), map() | keyword(), keyword()) :: :ok | {:error, term()}
-  def rollback(deployment, strategy, context \\ %{}, opts \\ []) do
-    context = Context.new(context)
-    strategy.rollback(deployment, context, opts)
-  end
-
-  @doc """
   Undeploys an application by removing all its resources.
 
   This operation is idempotent - running it multiple times has the same effect
@@ -231,10 +212,13 @@ defmodule Otturnaut.Deployment do
 
     %{app_id: app_id, runtime: runtime, runtime_opts: runtime_opts} = deployment
 
+    Logger.info("Starting undeploy app_id=#{app_id}")
+
     notify_undeploy_progress(opts, :retrieve_state, "Retrieving application state")
 
     case app_state.get(app_id) do
       {:error, :not_found} ->
+        Logger.info("Undeploy skipped - app not found app_id=#{app_id}")
         :ok
 
       {:ok, app} ->
@@ -244,6 +228,7 @@ defmodule Otturnaut.Deployment do
         release_port(app.port, port_manager, opts)
         clear_app_state(app_id, app_state, opts)
 
+        Logger.info("Undeploy completed app_id=#{app_id} container=#{app.container_name} port=#{app.port}")
         :ok
     end
   end

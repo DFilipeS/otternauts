@@ -29,6 +29,8 @@ defmodule Otturnaut.Caddy do
   This keeps Otturnaut-managed routes separate from any manual Caddy configuration.
   """
 
+  require Logger
+
   alias Otturnaut.Caddy.{Client, Route}
 
   @server_path "/apps/http/servers/otturnaut"
@@ -78,31 +80,42 @@ defmodule Otturnaut.Caddy do
   """
   @spec add_route(Route.t(), keyword()) :: :ok | error()
   def add_route(%Route{} = route, opts \\ []) do
-    with :ok <- ensure_server_exists(opts) do
-      config = Route.to_caddy_config(route)
-      # Try PATCH first (update existing), fall back to append on 404
-      case client(opts).put_by_id(route.id, config, opts) do
-        :ok ->
-          :ok
+    result =
+      with :ok <- ensure_server_exists(opts) do
+        config = Route.to_caddy_config(route)
+        # Try PATCH first (update existing), fall back to append on 404
+        case client(opts).put_by_id(route.id, config, opts) do
+          :ok ->
+            :ok
 
-        {:error, {:unexpected_status, 404, _}} ->
-          # Route doesn't exist, append to routes array
-          # If append fails (array doesn't exist), initialize routes with this route
-          case client(opts).append_config(@routes_path, config, opts) do
-            :ok ->
-              :ok
+          {:error, {:unexpected_status, 404, _}} ->
+            # Route doesn't exist, append to routes array
+            # If append fails (array doesn't exist), initialize routes with this route
+            case client(opts).append_config(@routes_path, config, opts) do
+              :ok ->
+                :ok
 
-            {:error, {:unexpected_status, 500, _}} ->
-              # Routes array doesn't exist or is empty, use PATCH to set it
-              client(opts).patch_config(@routes_path, [config], opts)
+              {:error, {:unexpected_status, 500, _}} ->
+                # Routes array doesn't exist or is empty, use PATCH to set it
+                client(opts).patch_config(@routes_path, [config], opts)
 
-            {:error, _} = error ->
-              error
-          end
+              {:error, _} = error ->
+                error
+            end
 
-        {:error, _} = error ->
-          error
+          {:error, _} = error ->
+            error
+        end
       end
+
+    case result do
+      :ok ->
+        Logger.info("Caddy route added route_id=#{route.id} domains=#{inspect(route.domains)} port=#{route.upstream_port}")
+        :ok
+
+      error ->
+        Logger.warning("Failed to add Caddy route route_id=#{route.id} error=#{inspect(error)}")
+        error
     end
   end
 
@@ -116,7 +129,15 @@ defmodule Otturnaut.Caddy do
   """
   @spec remove_route(String.t(), keyword()) :: :ok | error()
   def remove_route(route_id, opts \\ []) do
-    client(opts).delete_by_id(route_id, opts)
+    case client(opts).delete_by_id(route_id, opts) do
+      :ok ->
+        Logger.info("Caddy route removed route_id=#{route_id}")
+        :ok
+
+      error ->
+        Logger.warning("Failed to remove Caddy route route_id=#{route_id} error=#{inspect(error)}")
+        error
+    end
   end
 
   @doc """

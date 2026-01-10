@@ -106,35 +106,6 @@ defmodule Otturnaut.PortManagerTest do
     end
   end
 
-  describe "mark_in_use/1" do
-    test "marks a port as in use", %{server: server} do
-      refute PortManager.in_use?(50005, server)
-
-      :ok = PortManager.mark_in_use(50005, server)
-
-      assert PortManager.in_use?(50005, server)
-    end
-
-    test "returns error for port outside range", %{server: server} do
-      assert {:error, :out_of_range} = PortManager.mark_in_use(9999, server)
-      assert {:error, :out_of_range} = PortManager.mark_in_use(60000, server)
-    end
-
-    test "prevents allocation of marked port", %{server: server} do
-      # Mark most ports as in use
-      for port <- 50000..50009 do
-        PortManager.mark_in_use(port, server)
-      end
-
-      # Only 50010 should be available
-      {:ok, port} = PortManager.allocate(server)
-      assert port == 50010
-
-      # Now exhausted
-      assert {:error, :exhausted} = PortManager.allocate(server)
-    end
-  end
-
   describe "get_range/0" do
     test "returns the configured port range", %{server: server} do
       assert PortManager.get_range(server) == @test_range
@@ -146,24 +117,32 @@ defmodule Otturnaut.PortManagerTest do
       # Allocate all but one port to maximize chance of random failure
       # With 10/11 ports allocated, random has ~39% chance of failing 10 times
       # Running multiple allocate/release cycles should eventually trigger sequential
-      for port <- 50000..50009 do
-        PortManager.mark_in_use(port, server)
-      end
+      allocated_ports =
+        for _ <- 50000..50009 do
+          {:ok, port} = PortManager.allocate(server)
+          port
+        end
 
-      # Now only port 50010 is free
+      # Now only one port is free (whichever wasn't allocated randomly)
       # Random selection will likely hit allocated ports multiple times
       # Eventually triggering the sequential fallback
-      {:ok, port} = PortManager.allocate(server)
-      # Sequential would find this
-      assert port == 50010
+      {:ok, last_port} = PortManager.allocate(server)
+
+      # The last port should be one of the ports in our range
+      assert last_port in 50000..50010
+      # And should not be in the already allocated list
+      refute last_port in allocated_ports
+
+      # Now all ports are exhausted
+      assert {:error, :exhausted} = PortManager.allocate(server)
 
       # Release and try again multiple times to increase coverage
-      PortManager.release(port, server)
+      PortManager.release(last_port, server)
 
-      # Do several allocation cycles
+      # Do several allocation cycles - should always get the same port back
       for _ <- 1..5 do
         {:ok, p} = PortManager.allocate(server)
-        assert p == 50010
+        assert p == last_port
         PortManager.release(p, server)
       end
     end
