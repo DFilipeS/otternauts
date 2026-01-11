@@ -175,7 +175,9 @@ defmodule Otturnaut.Caddy.ClientTest do
         Req.Test.json(conn, %{})
       end)
 
-      result = Client.patch_config("/routes", [%{"@id" => "test"}], plug(__MODULE__.PatchConfigSuccess))
+      result =
+        Client.patch_config("/routes", [%{"@id" => "test"}], plug(__MODULE__.PatchConfigSuccess))
+
       assert :ok = result
     end
 

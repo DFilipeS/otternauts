@@ -15,6 +15,7 @@ defmodule Otturnaut.AppStateDefaultArgsTest do
           {:ok, _} -> :ok
           {:error, {:already_started, _}} -> :ok
         end
+
       pid ->
         # Clear any existing state
         try do

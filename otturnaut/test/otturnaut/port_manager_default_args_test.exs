@@ -95,6 +95,7 @@ defmodule Otturnaut.PortManagerDefaultArgsTest do
           {:ok, _} -> :ok
           {:error, {:already_started, _}} -> :ok
         end
+
       pid ->
         # Stop and restart with the required range
         try do

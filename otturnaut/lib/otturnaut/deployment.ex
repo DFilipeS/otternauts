@@ -228,7 +228,10 @@ defmodule Otturnaut.Deployment do
         release_port(app.port, port_manager, opts)
         clear_app_state(app_id, app_state, opts)
 
-        Logger.info("Undeploy completed app_id=#{app_id} container=#{app.container_name} port=#{app.port}")
+        Logger.info(
+          "Undeploy completed app_id=#{app_id} container=#{app.container_name} port=#{app.port}"
+        )
+
         :ok
     end
   end

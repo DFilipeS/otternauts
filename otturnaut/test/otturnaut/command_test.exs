@@ -52,7 +52,8 @@ defmodule Otturnaut.CommandTest do
     end
 
     test "respects env option" do
-      result = Command.run("sh", ["-c", "echo $MY_TEST_VAR"], env: [{"MY_TEST_VAR", "hello_from_env"}])
+      result =
+        Command.run("sh", ["-c", "echo $MY_TEST_VAR"], env: [{"MY_TEST_VAR", "hello_from_env"}])
 
       assert result.status == :ok
       assert String.trim(result.output) == "hello_from_env"

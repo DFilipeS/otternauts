@@ -38,7 +38,12 @@ defmodule Otturnaut.HealthCheck do
             runtime: module(),
             name: String.t()
           }
-          | %{type: :http, url: String.t(), expected_status: pos_integer(), timeout: pos_integer()}
+          | %{
+              type: :http,
+              url: String.t(),
+              expected_status: pos_integer(),
+              timeout: pos_integer()
+            }
           | %{type: :tcp, host: String.t(), port: pos_integer(), timeout: pos_integer()}
 
   @type result :: :healthy | :unhealthy

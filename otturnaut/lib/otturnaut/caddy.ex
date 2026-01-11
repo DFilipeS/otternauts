@@ -110,7 +110,10 @@ defmodule Otturnaut.Caddy do
 
     case result do
       :ok ->
-        Logger.info("Caddy route added route_id=#{route.id} domains=#{inspect(route.domains)} port=#{route.upstream_port}")
+        Logger.info(
+          "Caddy route added route_id=#{route.id} domains=#{inspect(route.domains)} port=#{route.upstream_port}"
+        )
+
         :ok
 
       error ->
@@ -135,7 +138,10 @@ defmodule Otturnaut.Caddy do
         :ok
 
       error ->
-        Logger.warning("Failed to remove Caddy route route_id=#{route_id} error=#{inspect(error)}")
+        Logger.warning(
+          "Failed to remove Caddy route route_id=#{route_id} error=#{inspect(error)}"
+        )
+
         error
     end
   end

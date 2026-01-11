@@ -99,7 +99,16 @@ defmodule Otturnaut.Build do
     case Git.clone(config.repo_url, clone_opts) do
       {:ok, source_dir, commit_hash} ->
         image_tag = image_tag(app_id, commit_hash)
-        build_and_cleanup(source_dir, image_tag, config, runtime, runtime_opts, timeout, subscriber)
+
+        build_and_cleanup(
+          source_dir,
+          image_tag,
+          config,
+          runtime,
+          runtime_opts,
+          timeout,
+          subscriber
+        )
 
       {:error, reason} ->
         {:error, {:clone_failed, reason}}
@@ -118,7 +127,15 @@ defmodule Otturnaut.Build do
 
   # Private functions
 
-  defp build_and_cleanup(source_dir, image_tag, config, runtime, runtime_opts, timeout, subscriber) do
+  defp build_and_cleanup(
+         source_dir,
+         image_tag,
+         config,
+         runtime,
+         runtime_opts,
+         timeout,
+         subscriber
+       ) do
     dockerfile = Map.get(config, :dockerfile, @default_dockerfile)
     build_args = Map.get(config, :build_args, %{})
 

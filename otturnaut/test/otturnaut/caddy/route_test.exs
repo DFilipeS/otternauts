@@ -28,12 +28,13 @@ defmodule Otturnaut.Caddy.RouteTest do
 
       assert config["@id"] == "myapp"
       assert config["match"] == [%{"host" => ["myapp.com"]}]
+
       assert config["handle"] == [
-        %{
-          "handler" => "reverse_proxy",
-          "upstreams" => [%{"dial" => "127.0.0.1:3000"}]
-        }
-      ]
+               %{
+                 "handler" => "reverse_proxy",
+                 "upstreams" => [%{"dial" => "127.0.0.1:3000"}]
+               }
+             ]
     end
   end
 

@@ -116,7 +116,8 @@ defmodule Otturnaut.Source.GitTest do
       repo_url = "git@github.com:user/private.git"
       ssh_key = "/path/to/deploy_key"
 
-      {:ok, path, _commit_hash} = Git.clone(repo_url, ssh_key: ssh_key, command_module: MockCommand)
+      {:ok, path, _commit_hash} =
+        Git.clone(repo_url, ssh_key: ssh_key, command_module: MockCommand)
 
       assert_received {:git_called, _args, opts}
       env = Keyword.get(opts, :env, [])
@@ -169,7 +170,8 @@ defmodule Otturnaut.Source.GitTest do
       repo_url = "https://github.com/user/app.git"
       commit_hash = "a36e58acd8002cbfcea68c7a277a6515a6ac2dac"
 
-      {:ok, path, _returned_hash} = Git.clone(repo_url, ref: commit_hash, command_module: MockCommand)
+      {:ok, path, _returned_hash} =
+        Git.clone(repo_url, ref: commit_hash, command_module: MockCommand)
 
       # First call: clone with --branch (fails)
       assert_received {:git_called, ["clone", "--branch", ^commit_hash | _], _opts}
@@ -248,7 +250,9 @@ defmodule Otturnaut.Source.GitTest do
     end
 
     test "is idempotent - succeeds for non-existent path" do
-      non_existent = Path.join(System.tmp_dir!(), "otturnaut-does-not-exist-#{:rand.uniform(10000)}")
+      non_existent =
+        Path.join(System.tmp_dir!(), "otturnaut-does-not-exist-#{:rand.uniform(10000)}")
+
       refute File.exists?(non_existent)
 
       assert :ok = Git.cleanup(non_existent)

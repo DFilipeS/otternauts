@@ -375,9 +375,9 @@ defmodule Otturnaut.DeploymentTest do
     end
 
     test "successfully undeploys app with all resources present", %{
-           context: context,
-           deployment: deployment
-         } do
+      context: context,
+      deployment: deployment
+    } do
       app = %{
         deployment_id: "deploy123",
         container_name: "otturnaut-myapp-deploy123",
@@ -405,9 +405,9 @@ defmodule Otturnaut.DeploymentTest do
     end
 
     test "handles partial cleanup when container already removed", %{
-           context: context,
-           deployment: deployment
-         } do
+      context: context,
+      deployment: deployment
+    } do
       app = %{
         deployment_id: "deploy123",
         container_name: "otturnaut-myapp-deploy123",
@@ -444,9 +444,9 @@ defmodule Otturnaut.DeploymentTest do
     end
 
     test "skips Caddy route removal when no domains configured", %{
-           context: context,
-           deployment: deployment
-         } do
+      context: context,
+      deployment: deployment
+    } do
       app = %{
         deployment_id: "deploy123",
         container_name: "otturnaut-myapp-deploy123",
@@ -465,9 +465,9 @@ defmodule Otturnaut.DeploymentTest do
     end
 
     test "sends progress notifications when subscriber provided", %{
-           context: context,
-           deployment: deployment
-         } do
+      context: context,
+      deployment: deployment
+    } do
       app = %{
         deployment_id: "deploy123",
         container_name: "otturnaut-myapp-deploy123",
@@ -563,9 +563,9 @@ defmodule Otturnaut.DeploymentTest do
     end
 
     test "continues cleanup when Caddy route removal fails", %{
-           context: context,
-           deployment: deployment
-         } do
+      context: context,
+      deployment: deployment
+    } do
       custom_context = %{context | caddy: UndeployFailingCaddy}
 
       app = %{

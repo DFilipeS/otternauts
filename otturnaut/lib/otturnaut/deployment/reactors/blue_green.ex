@@ -33,56 +33,56 @@ defmodule Otturnaut.Deployment.Reactors.BlueGreen do
 
   alias Otturnaut.Deployment.Steps
 
-  input :deployment
-  input :context
-  input :opts
+  input(:deployment)
+  input(:context)
+  input(:opts)
 
   step :load_previous_state, Steps.LoadPreviousState do
-    argument :app_id, input(:deployment), transform: & &1.app_id
-    argument :app_state, input(:context), transform: & &1.app_state
+    argument(:app_id, input(:deployment), transform: & &1.app_id)
+    argument(:app_state, input(:context), transform: & &1.app_state)
   end
 
   step :allocate_port, Steps.AllocatePort do
-    argument :port_manager, input(:context), transform: & &1.port_manager
+    argument(:port_manager, input(:context), transform: & &1.port_manager)
   end
 
   step :start_container, Steps.StartContainer do
-    argument :deployment, input(:deployment)
-    argument :port, result(:allocate_port)
+    argument(:deployment, input(:deployment))
+    argument(:port, result(:allocate_port))
   end
 
   step :health_check, Steps.HealthCheck do
-    argument :deployment, input(:deployment)
-    argument :container, result(:start_container)
-    argument :opts, input(:opts)
+    argument(:deployment, input(:deployment))
+    argument(:container, result(:start_container))
+    argument(:opts, input(:opts))
   end
 
   step :switch_route, Steps.SwitchRoute do
-    argument :deployment, input(:deployment)
-    argument :port, result(:allocate_port)
-    argument :previous_state, result(:load_previous_state)
-    argument :caddy, input(:context), transform: & &1.caddy
+    argument(:deployment, input(:deployment))
+    argument(:port, result(:allocate_port))
+    argument(:previous_state, result(:load_previous_state))
+    argument(:caddy, input(:context), transform: & &1.caddy)
 
-    wait_for :health_check
+    wait_for(:health_check)
   end
 
   step :cleanup, Steps.Cleanup do
-    argument :deployment, input(:deployment)
-    argument :previous_state, result(:load_previous_state)
-    argument :port_manager, input(:context), transform: & &1.port_manager
+    argument(:deployment, input(:deployment))
+    argument(:previous_state, result(:load_previous_state))
+    argument(:port_manager, input(:context), transform: & &1.port_manager)
 
-    wait_for :switch_route
+    wait_for(:switch_route)
   end
 
   step :update_app_state, Steps.UpdateAppState do
-    argument :deployment, input(:deployment)
-    argument :port, result(:allocate_port)
-    argument :container, result(:start_container)
-    argument :previous_state, result(:load_previous_state)
-    argument :app_state, input(:context), transform: & &1.app_state
+    argument(:deployment, input(:deployment))
+    argument(:port, result(:allocate_port))
+    argument(:container, result(:start_container))
+    argument(:previous_state, result(:load_previous_state))
+    argument(:app_state, input(:context), transform: & &1.app_state)
 
-    wait_for :cleanup
+    wait_for(:cleanup)
   end
 
-  return :update_app_state
+  return(:update_app_state)
 end

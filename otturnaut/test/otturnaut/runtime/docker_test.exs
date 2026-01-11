@@ -148,7 +148,21 @@ defmodule Otturnaut.Runtime.DockerTest do
   defmodule BuildArgsMock do
     def run(cmd, args), do: run(cmd, args, [])
 
-    def run("docker", ["build", "-t", _tag, "-f", _dockerfile, "--build-arg", arg1, "--build-arg", arg2 | _rest], _opts) do
+    def run(
+          "docker",
+          [
+            "build",
+            "-t",
+            _tag,
+            "-f",
+            _dockerfile,
+            "--build-arg",
+            arg1,
+            "--build-arg",
+            arg2 | _rest
+          ],
+          _opts
+        ) do
       # Verify build args are passed
       if String.contains?(arg1, "MIX_ENV=") and String.contains?(arg2, "NODE_ENV=") do
         Otturnaut.Command.Result.success("Built with args\n", 1000)

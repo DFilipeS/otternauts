@@ -109,8 +109,11 @@ defmodule Otturnaut.Source.Git do
     args = build_branch_clone_args(repo_url, target_dir, ref, depth)
 
     case cmd.run("git", args, env: env) do
-      %Result{status: :ok} -> :ok
-      %Result{status: :error, error: error, output: output} -> {:error, {:clone_failed, error, output}}
+      %Result{status: :ok} ->
+        :ok
+
+      %Result{status: :error, error: error, output: output} ->
+        {:error, {:clone_failed, error, output}}
     end
   end
 
@@ -131,8 +134,11 @@ defmodule Otturnaut.Source.Git do
     checkout_args = ["-C", target_dir, "checkout", ref]
 
     case cmd.run("git", checkout_args) do
-      %Result{status: :ok} -> :ok
-      %Result{status: :error, error: error, output: output} -> {:error, {:checkout_failed, error, output}}
+      %Result{status: :ok} ->
+        :ok
+
+      %Result{status: :error, error: error, output: output} ->
+        {:error, {:checkout_failed, error, output}}
     end
   end
 

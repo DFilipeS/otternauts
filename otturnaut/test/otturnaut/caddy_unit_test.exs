@@ -211,8 +211,7 @@ defmodule Otturnaut.CaddyUnitTest do
           {:get_config, "/apps/http/servers/otturnaut"} => {:ok, %{"routes" => []}},
           {:put_by_id, "newapp"} =>
             {:error, {:unexpected_status, 404, %{"error" => "unknown object ID"}}},
-          {:append_config, "/apps/http/servers/otturnaut/routes"} =>
-            {:error, :caddy_unavailable}
+          {:append_config, "/apps/http/servers/otturnaut/routes"} => {:error, :caddy_unavailable}
         }
       ]
 
@@ -234,7 +233,8 @@ defmodule Otturnaut.CaddyUnitTest do
         }
       ]
 
-      assert {:error, {:unexpected_status, 404, "not found"}} = Caddy.remove_route("missing", opts)
+      assert {:error, {:unexpected_status, 404, "not found"}} =
+               Caddy.remove_route("missing", opts)
     end
   end
 
