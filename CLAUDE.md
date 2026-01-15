@@ -25,6 +25,11 @@ A lightweight, open-source platform for deploying and managing web applications 
 | "Implement X" or "Build X"   | Propose a plan first, then implement after approval |
 | "Just do it" or "Go ahead"   | Proceed with implementation                         |
 
+## Plan Mode
+
+- Make the plan extremely concise. Sacrifice grammar for the sake of concision.
+- At the end of each plan, give me a list of unresolved questions to answer, if any.
+
 ### Testing Philosophy
 
 Follow the testing pyramid strictly:
