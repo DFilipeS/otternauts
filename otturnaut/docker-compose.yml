@@ -1,0 +1,26 @@
+services:
+  otturnaut:
+    image: ghcr.io/otternauts/otturnaut:${VERSION:-latest}
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      # Container runtime socket - set CONTAINER_SOCKET_PATH in .env
+      # Docker: /var/run/docker.sock
+      # Podman (rootful): /run/podman/podman.sock
+      # Podman (rootless): /run/user/<UID>/podman/podman.sock
+      - ${CONTAINER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/container.sock
+      # Agent data (includes SSH keys at /data/ssh/)
+      - ./otturnaut/data:/data
+    environment:
+      - RELEASE_NODE=${RELEASE_NODE}
+      - RELEASE_COOKIE=${RELEASE_COOKIE}
+      - MISSION_CONTROL_HOST=${MISSION_CONTROL_HOST}
+      - CONTAINER_SOCKET=/var/run/container.sock
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./otturnaut/caddy/data:/data
+      - ./otturnaut/caddy/config:/config

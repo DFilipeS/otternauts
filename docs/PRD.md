@@ -108,9 +108,9 @@ The BEAM virtual machine offers unique advantages for orchestration software:
 
 The orchestrator should consume as few resources as possible. Target: control plane + agent combined under 100MB RAM.
 
-### 2. Container-Agnostic
+### 2. Container-First
 
-Support Docker, Podman, and non-containerised deployments as first-class citizens. Don't assume containers are always the answer.
+All deployments run as containers (Docker or Podman). This simplifies the deployment model, ensures consistent behavior across environments, and aligns with modern practices. See [ADR 011](adr/011-containerized-deployment.md) for the rationale behind this decision.
 
 ### 3. Excellent Documentation
 
@@ -145,12 +145,12 @@ Deployed as a container for easy installation.
 
 A lightweight process running on each managed server:
 
-- Executes deployment commands
-- Manages the local reverse proxy
+- Executes deployment commands (pulls images, runs containers)
+- Manages the local reverse proxy (Caddy)
 - Streams logs and metrics back to control plane
 - Performs health checks
 
-Installed automatically via SSH when a server is registered.
+Both the agent (Otturnaut) and reverse proxy (Caddy) run as containers via Docker Compose. See [ADR 011](adr/011-containerized-deployment.md) for details.
 
 ### Communication
 
@@ -394,7 +394,7 @@ For Phase 1, live metrics only (no persistence) is acceptable. Revisit when obse
 | Aspect                | This Project             | Coolify           | Dokploy       |
 | --------------------- | ------------------------ | ----------------- | ------------- |
 | Runtime overhead      | Target: <100MB           | ~500MB+           | ~400MB+       |
-| Container support     | Docker, Podman, Native   | Docker only       | Docker only   |
+| Container support     | Docker, Podman           | Docker only       | Docker only   |
 | External dependencies | None (embedded DB, jobs) | PostgreSQL, Redis | PostgreSQL    |
 | Real-time updates     | Native (Erlang channels) | WebSocket         | WebSocket     |
 | Multi-server          | Native clustering        | Manual setup      | Manual setup  |
@@ -414,6 +414,7 @@ For Phase 1, live metrics only (no persistence) is acceptable. Revisit when obse
 
 ## Changelog
 
+- **2026-01-14** — Changed to container-first approach: agent and Caddy run via Docker Compose, all app deployments are containerized (see [ADR 011](adr/011-containerized-deployment.md))
 - **2025-12-27** — Added request routing architecture and diagram
 - **2025-12-27** — Resolved open questions: explicit build config (no magic), domain available, deferred multi-tenancy/logs/metrics to later phases
 - **2025-12-27** — Added project name (Otternauts), theme, and mascot (Otto)

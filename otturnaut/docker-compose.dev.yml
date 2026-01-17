@@ -1,0 +1,59 @@
+# Development/testing compose file for local end-to-end testing
+#
+# Usage:
+#   # Set your UID for rootless Podman socket path
+#   export HOST_UID=$(id -u)
+#
+#   # Build the local image first
+#   podman build -t otturnaut:dev .
+#
+#   # Start the stack
+#   podman compose -f docker-compose.dev.yml up -d
+#
+#   # Attach to IEx console
+#   podman compose -f docker-compose.dev.yml exec otturnaut bin/otturnaut remote
+#
+#   # View logs
+#   podman compose -f docker-compose.dev.yml logs -f otturnaut
+#
+#   # Stop
+#   podman compose -f docker-compose.dev.yml down
+
+services:
+  otturnaut:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: otturnaut:latest
+    restart: "no"
+    network_mode: host
+    # Run as root to access the container socket
+    user: "0:0"
+    # Disable SELinux labeling (needed for socket access on Fedora)
+    security_opt:
+      - label:disable
+    volumes:
+      # Podman socket:
+      #   Rootless: /run/user/<UID>/podman/podman.sock (default)
+      #   Rootful:  /run/podman/podman.sock (set CONTAINER_SOCKET_PATH)
+      - ${CONTAINER_SOCKET_PATH:-/run/user/${HOST_UID:-1000}/podman/podman.sock}:/var/run/container.sock
+      # Agent data (includes SSH keys at /data/ssh/)
+      # :z label for SELinux (Fedora)
+      - ./tmp/data:/data:z
+    environment:
+      # Use simple hostname for short node names
+      - RELEASE_NODE=otturnaut@localhost
+      - RELEASE_COOKIE=dev-cookie-change-me
+      # Container runtime socket path inside container
+      - CONTAINER_SOCKET=/var/run/container.sock
+
+  caddy:
+    image: caddy:2-alpine
+    restart: "no"
+    network_mode: host
+    volumes:
+      # Use Caddyfile.dev (ports 8080/8443) for rootless, or mount a production Caddyfile
+      # :z label for SELinux (Fedora)
+      - ${CADDYFILE:-./Caddyfile.dev}:/etc/caddy/Caddyfile:ro,z
+      - ./tmp/caddy/data:/data:z
+      - ./tmp/caddy/config:/config:z

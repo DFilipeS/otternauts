@@ -1,9 +1,23 @@
-defmodule Otturnaut.Runtime.Docker do
+defmodule Otturnaut.Runtime.Podman do
   @moduledoc """
-  Docker runtime implementation using the Docker Engine REST API.
+  Podman runtime implementation using the Podman REST API.
 
-  Communicates with Docker via HTTP over Unix socket (`/var/run/docker.sock`).
-  For Podman, use `Otturnaut.Runtime.Podman` instead.
+  Communicates with Podman via HTTP over Unix socket (`/run/podman/podman.sock`).
+  For Docker, use `Otturnaut.Runtime.Docker` instead.
+
+  The Podman API is Docker-compatible, so this module delegates to the same
+  `Otturnaut.Runtime.ContainerAPI` functions as the Docker module, just with
+  a different socket path.
+
+  ## Socket Activation
+
+  Podman's API socket may need to be activated:
+
+      # For rootful podman
+      sudo systemctl start podman.socket
+
+      # For rootless podman
+      systemctl --user start podman.socket
 
   ## Options
 
@@ -16,27 +30,13 @@ defmodule Otturnaut.Runtime.Docker do
 
   Containers are named `otturnaut-{app_id}-{deploy_id}` to enable discovery
   after agent restart.
-
-  ## Example
-
-      # List all Otturnaut-managed containers
-      Otturnaut.Runtime.Docker.list_apps()
-
-      # Start a new container
-      Otturnaut.Runtime.Docker.start(%{
-        image: "myapp:latest",
-        port: 10042,
-        container_port: 3000,
-        env: %{"PORT" => "3000"},
-        name: "otturnaut-myapp-abc123"
-      })
   """
 
   @behaviour Otturnaut.Runtime
 
   alias Otturnaut.Runtime.ContainerAPI
 
-  @socket "/var/run/docker.sock"
+  @socket "/run/podman/podman.sock"
   @otturnaut_prefix "otturnaut-"
 
   defp api_module(opts), do: Keyword.get(opts, :api_module, ContainerAPI)
@@ -141,7 +141,7 @@ defmodule Otturnaut.Runtime.Docker do
     api.build_image(socket(opts_list), context_path, tag, opts_list)
   end
 
-  # Private helpers
+  # Private helpers (identical to Docker module)
 
   defp otturnaut_container?(%{names: names}) do
     Enum.any?(names, fn name ->

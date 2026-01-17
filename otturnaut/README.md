@@ -32,6 +32,56 @@ Otturnaut connects to Mission Control via Erlang distribution, enabling:
 - RPC for triggering deployments
 - Streaming updates during deployment progress
 
+## Deployment
+
+Otturnaut and Caddy run as containers via Docker Compose. See [ADR 011](../docs/adr/011-containerized-deployment.md) for background.
+
+### Prerequisites
+
+- Docker or Podman installed on the target server
+- Network access to Mission Control
+
+### Setup
+
+1. Create the installation directory:
+   ```bash
+   mkdir -p /opt/otturnaut
+   cd /opt/otturnaut
+   ```
+
+2. Copy `docker-compose.yml` to the server (from this repository)
+
+3. Create `.env` with your configuration:
+   ```bash
+   cat > .env <<EOF
+   VERSION=latest
+   RELEASE_NODE=otturnaut@outpost1.example.com
+   RELEASE_COOKIE=your_secret_cookie_here
+   MISSION_CONTROL_HOST=mc.example.com
+   EOF
+   ```
+
+4. Start the services:
+   ```bash
+   docker compose up -d
+   ```
+
+### Management
+
+```bash
+# View logs
+docker compose logs -f
+
+# Restart services
+docker compose restart
+
+# Upgrade to new version
+docker compose pull && docker compose up -d
+
+# Stop services
+docker compose down
+```
+
 ## Development
 
 ```bash
